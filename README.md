@@ -74,6 +74,31 @@ These instructions are written for someone who is comfortable copying
 commands into Terminal but does not otherwise need to be a Terminal
 user.
 
+## Get Mercury Writer
+
+### Easiest: download it from GitHub
+
+Click the green **Code** button at the top of this GitHub page, then choose **Download ZIP**.
+
+Open the downloaded ZIP and move the `Mercury-Writer` folder somewhere convenient, such as your Documents folder.
+
+### Or clone it with Git
+
+If you use Terminal, clone the repository directly:
+
+```bash
+git clone https://github.com/WaltRudyJabsco/Mercury-Writer.git
+cd Mercury-Writer
+```
+
+Later, if you want to update an existing cloned copy, open Terminal in the Mercury Writer folder and run:
+
+```bash
+git pull
+```
+
+Then continue with the installation instructions below.
+
 ## 1. Put Mercury in a folder
 
 Download or clone Mercury so these two files are together:
