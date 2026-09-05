@@ -50,6 +50,38 @@ The server uses only Python's standard library. You do **not** need to install P
 
 ---
 
+## Before you install: Web Search is optional
+
+Mercury's local AI does **not** require an online account. Ollama and your downloaded AI model can run entirely on your Mac.
+
+If you would also like Mercury's AI assistant to **search the web for current information**, there is one optional bit of preparation that is easiest to do before running the installer.
+
+1. Visit the Ollama website and create a free account:
+
+   https://ollama.com/
+
+2. Sign in to your Ollama account and create an **API key**.
+
+3. Copy the API key and keep it temporarily in your clipboard or somewhere safe.
+
+4. Run the Mercury installer normally.
+
+Near the end of installation, Mercury will ask:
+
+```text
+Configure an Ollama API key for Mercury Web Search now? [y/N]
+```
+
+Enter `y`, press Return, and paste the API key when prompted.
+
+The installer will save it to your Mac's shell environment so Mercury can use it in the future. You should not need to enter it each time you launch Mercury.
+
+**If you do not want Web Search, skip this entirely.** Mercury's local writing and AI features still work without an Ollama account or API key.
+
+> Keep your API key private. Do not put it in a manuscript, paste it into Mercury's AI chat, or commit it to GitHub.
+
+---
+
 # Quick Start — macOS
 
 These instructions are written for someone who is comfortable copying commands into Terminal but does not otherwise need to be a Terminal user.
@@ -242,11 +274,9 @@ Launch Mercury.command
 
 # Optional: Web Search for the AI assistant
 
-Mercury's AI is local by default. Checking **Web search** lets the local model receive current search results through Ollama's Web Search API.
+If you supplied an Ollama API key during installation, Web Search is already configured. Check **Web search** in Mercury's AI panel whenever you want the local model to receive current web results.
 
-This requires an Ollama API key. Create a key in your Ollama account, then add it to your shell environment.
-
-For the default macOS `zsh` shell:
+If you skipped API-key setup during installation and want to add it later, create an API key from your Ollama account and add it to the default macOS `zsh` environment:
 
 ```bash
 echo 'export OLLAMA_API_KEY="PASTE_YOUR_OLLAMA_API_KEY_HERE"' >> ~/.zshrc
@@ -255,21 +285,17 @@ source ~/.zshrc
 
 Replace the placeholder with your actual key.
 
-Confirm that the variable exists without printing the secret itself:
+Confirm that the key is configured without displaying the key itself:
 
 ```bash
 if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
 ```
 
-Then restart Mercury:
+Then restart Mercury.
 
-```bash
-python3 mercury_server.py
-```
+With **Web search off**, prompts and manuscript context sent to your local Ollama model remain local. With **Web search on**, Mercury additionally sends the search query to Ollama's Web Search service and provides the returned results to your local model.
 
-The **Web search** checkbox remembers your preference in that browser. When it is off, the AI request stays local between Mercury and your local Ollama service.
-
-> Do not commit your Ollama API key to GitHub. Keep it in your local shell environment, not in Mercury's source files.
+> Keep your Ollama API key private and never commit it to GitHub.
 
 ---
 
