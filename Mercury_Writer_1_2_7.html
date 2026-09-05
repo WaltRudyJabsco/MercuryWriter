@@ -1,0 +1,1882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mercury Writer 1.2.7.1 — Adaptive Novel Writing Studio</title>
+<style>
+:root{
+  --bg:#171717; --panel:#202020; --panel2:#262626; --ink:#eae7df; --muted:#aaa49a;
+  --line:#383838; --accent:#d6b36a; --paper:#f6f1e7; --paperink:#201e1a;
+  --danger:#b55b5b; --shadow:0 12px 35px rgba(0,0,0,.28); --editorZoom:1; --bookZoom:1; --selection:#d7a83f; --selectionText:#1c1608;
+  --ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);overflow:hidden}
+button,input,select,textarea{font:inherit}
+button{color:inherit}
+.app{display:grid;grid-template-rows:42px 1fr 30px;height:100vh}
+.topbar{
+ display:flex;align-items:center;gap:8px;padding:0 10px;background:#141414;border-bottom:1px solid #2d2d2d;
+ user-select:none
+}
+.brand{font-family:var(--serif);font-weight:700;letter-spacing:.04em;font-size:16px;margin-right:12px}
+.brand em{font-style:normal;color:var(--accent)}
+.btn{
+ border:1px solid transparent;background:transparent;border-radius:6px;padding:6px 9px;cursor:pointer;color:#d9d5cc
+}
+.btn:hover{background:#2a2a2a;border-color:#333}
+.btn.active{background:#342f24;border-color:#5a4c31;color:#f6e1a9}
+.sep{width:1px;height:18px;background:#353535;margin:0 3px}
+.spacer{flex:1}
+.badge{font-size:11px;color:#b9b3a8;border:1px solid #3b3b3b;border-radius:999px;padding:3px 8px}
+.workspace{display:grid;grid-template-columns:255px minmax(420px,1fr) 375px;min-height:0}
+.sidebar,.inspector{background:var(--panel);min-height:0;display:flex;flex-direction:column}
+.sidebar{border-right:1px solid var(--line)}
+.inspector{border-left:1px solid var(--line)}
+.panel-head{height:38px;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:#b8b1a6}
+.panel-head .spacer{flex:1}
+.iconbtn{background:transparent;border:0;color:#bbb;cursor:pointer;border-radius:5px;width:26px;height:26px}
+.iconbtn:hover{background:#303030}
+.tree{overflow:auto;padding:7px 0 80px}
+.tree-item{
+ display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:5px;padding:6px 8px 6px 12px;
+ cursor:pointer;font-size:13px;border-left:2px solid transparent
+}
+.tree-item:hover{background:#282828}
+.tree-item.active{background:#2c2a25;border-left-color:var(--accent)}
+.tree-item .meta{font-size:10px;color:#817d75}.tree-item .del{opacity:0;border:0;background:transparent;color:#817d75;cursor:pointer;padding:0 2px}.tree-item:hover .del{opacity:1}.tree-item .del:hover{color:#e98b8b}
+.tree-item.chapter{font-weight:650;color:#eee7db}
+.tree-item.scene{padding-left:26px;color:#c7c1b7}
+.tree-item.dragover{outline:1px dashed var(--accent);outline-offset:-2px}
+.editor-wrap{min-width:0;display:flex;flex-direction:column;background:#1b1b1b}
+.dochead{
+ height:46px;display:flex;align-items:center;gap:9px;padding:0 14px;border-bottom:1px solid #303030;background:#1a1a1a
+}
+.title-input{
+ flex:1;min-width:0;background:transparent;border:0;color:#f0ece3;font-family:var(--serif);font-size:18px;font-weight:700;outline:0
+}
+.small-input{width:85px;background:#242424;border:1px solid #3b3b3b;border-radius:5px;color:#ddd;padding:4px 6px;font-size:11px;color-scheme:dark}
+.editor-shell{position:relative;flex:1;min-height:0}
+.editor{
+ width:100%;height:100%;resize:none;border:0;outline:0;background:#1b1b1b;color:#e8e4dc;
+ padding:46px max(38px,calc((100% - 740px)/2)) 120px;font:calc(18px * var(--editorZoom))/1.72 var(--serif);caret-color:#f4d38d;
+ tab-size:4;white-space:pre-wrap
+}
+.editor::selection{background:#51462d}
+.editor.focus{padding-left:max(60px,calc((100% - 760px)/2));padding-right:max(60px,calc((100% - 760px)/2))}
+.statusbar{
+ display:flex;align-items:center;gap:14px;padding:0 10px;background:#141414;border-top:1px solid #2d2d2d;color:#979188;
+ font-size:11px
+}
+.statusbar .spacer{flex:1}
+.side-tabs{display:flex;border-bottom:1px solid var(--line)}
+.side-tab{flex:1;text-align:center;padding:9px 4px;font-size:11px;cursor:pointer;color:#928d84;border-bottom:2px solid transparent}
+.side-tab.active{color:#eee4d4;border-bottom-color:var(--accent)}
+.side-body{overflow:auto;min-height:0;flex:1}
+.card{padding:12px;border-bottom:1px solid var(--line)}
+.card h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#99938a}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:#252525;border:1px solid #343434;border-radius:7px;padding:9px}
+.stat strong{display:block;font:700 18px/1.1 var(--serif);color:#eee8dc}
+.stat span{font-size:10px;color:#918b82}
+.progress{height:6px;background:#343434;border-radius:99px;overflow:hidden;margin-top:8px}
+.progress > i{display:block;height:100%;background:var(--accent);width:0}
+.field{margin:8px 0}
+.field label{display:block;font-size:10px;color:#8f8a82;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+.field input,.field textarea,.field select{
+ width:100%;background:#252525;border:1px solid #3b3b3b;border-radius:6px;color:#ddd;padding:7px;outline:0;color-scheme:dark
+}
+.field textarea{min-height:82px;resize:vertical}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:#7b6843}
+.book-stage{position:relative;height:100%;background:#181818;overflow:hidden}.measure-wrap{position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none}.measure-page{width:420px;height:630px;background:var(--paper);padding:53px 48px 45px;position:relative;font:12px/1.5 var(--serif);overflow:hidden}.measure-page .content{height:532px;overflow:hidden}.measure-page p{margin:0 0 .75em;text-indent:1.2em}.measure-page p:first-child{text-indent:0}.pages{height:100%;display:flex;align-items:center;justify-content:center;background:#181818;overflow:hidden;padding:24px 70px}.page{
+ width:calc(420px * var(--bookZoom));height:calc(630px * var(--bookZoom));background:var(--paper);color:var(--paperink);box-shadow:var(--shadow);
+ padding:calc(53px * var(--bookZoom)) calc(48px * var(--bookZoom)) calc(45px * var(--bookZoom));position:relative;font:calc(var(--bookFontPx, 12px) * var(--bookZoom))/var(--bookLeading, 1.5) var(--serif);overflow:hidden
+}.booknav{position:absolute;inset:0;pointer-events:none}.navbtn{pointer-events:auto;position:absolute;top:50%;transform:translateY(-50%);width:42px;height:64px;border:1px solid #3c3c3c;background:#242424cc;color:#ddd;border-radius:9px;cursor:pointer;font-size:24px}.navbtn:hover{background:#333}.navbtn.prev{left:14px}.navbtn.next{right:14px}.pagecounter{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:#202020dd;border:1px solid #3c3c3c;border-radius:999px;padding:5px 10px;font-size:11px;color:#bbb}.booktools{position:absolute;right:16px;top:12px;display:flex;gap:5px;pointer-events:auto}.booktools button{border:1px solid #3d3d3d;background:#252525;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer}
+.page .folio{position:absolute;bottom:17px;left:0;right:0;text-align:center;font-size:10px;color:#776f63}
+.page p{margin:0 0 .75em;text-indent:1.2em}
+.page p:first-child{text-indent:0}
+.page .scene-break{text-align:center;text-indent:0;letter-spacing:.3em;margin:1.7em 0}
+.hidden{display:none!important}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal{width:min(620px,92vw);max-height:80vh;overflow:auto;background:#222;border:1px solid #444;border-radius:11px;box-shadow:var(--shadow)}
+.modal-head{padding:14px 16px;border-bottom:1px solid #3a3a3a;font-weight:700}
+.modal-body{padding:16px}
+.modal-foot{padding:12px 16px;border-top:1px solid #3a3a3a;display:flex;justify-content:flex-end;gap:8px}
+
+/* Mercury 1.2.5: modal colors follow the active theme instead of hard-coded dark grays. */
+.modal{background:var(--panel);border-color:var(--line);color:var(--ink)}
+.modal-head{border-color:var(--line);color:var(--ink)}
+.modal-foot{border-color:var(--line)}
+.modal .btn{background:var(--panel2);border-color:var(--line);color:var(--ink)}
+.modal .btn:hover{background:var(--bg);color:var(--ink)}
+.modal .field input,.modal .field textarea,.modal .field select{
+ background:var(--panel2);border-color:var(--line);color:var(--ink);color-scheme:normal
+}
+.modal .field label{color:var(--muted)}
+.modal kbd{background:var(--panel2);border-color:var(--line);color:var(--ink)}
+
+kbd{background:#313131;border:1px solid #4a4a4a;border-bottom-width:2px;border-radius:4px;padding:1px 5px;font-size:10px}
+.findbar{position:absolute;right:18px;top:12px;z-index:5;display:flex;gap:5px;background:#252525;border:1px solid #444;border-radius:8px;padding:7px;box-shadow:var(--shadow)}
+.findbar input{width:190px;background:#171717;color:#ddd;border:1px solid #444;border-radius:5px;padding:5px 7px}.findbar .found{color:#e7cf92}
+.findbar button{border:0;background:#333;color:#ddd;border-radius:5px;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:45px;transform:translateX(-50%);background:#111;border:1px solid #4b4b4b;color:#ddd;padding:8px 12px;border-radius:7px;font-size:12px;z-index:80;opacity:0;pointer-events:none;transition:.2s}
+.toast.show{opacity:1}
+/* Mercury 1.1 adaptive interface. Desktop geometry above remains unchanged. */
+:root{--app-height:100dvh;--book-fit:1}
+.touch-only,.drawer-close,.touch-scrim,.mobile-sheet{display:none}
+.app{height:var(--app-height,100dvh)}
+.sidebar,.inspector{position:relative}
+
+@media (pointer:coarse){
+ .btn,.iconbtn,.side-tab,.tree-item{min-height:42px}
+ .tree-item .del{opacity:1;min-width:32px;min-height:32px}
+ input,select,textarea{font-size:max(16px,1em)}
+}
+
+/* Tablet / narrow-window mode: editor is primary; side panels become drawers. */
+@media(max-width:1099px){
+ .app{grid-template-rows:48px 1fr 30px}
+ .workspace{grid-template-columns:1fr;position:relative;min-width:0}
+ .touch-only{display:flex!important}
+ .topbar{height:48px;padding:0 8px;gap:4px;overflow:visible}
+ .topbar>.brand,.topbar>.btn:not(.touch-only),.topbar>.badge,.topbar>.sep{display:none!important}
+ .topbar>.spacer{display:none!important}.topbar>.spacer.touch-only{display:block!important}
+ .touch-top-btn{align-items:center;justify-content:center;min-width:42px;height:42px;padding:0 10px;font-size:15px}
+ .touch-title{display:block!important;min-width:0;max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--serif);font-weight:700;font-size:15px;color:var(--ink);padding:0 6px}
+ .sidebar,.inspector{
+   display:flex!important;position:fixed;z-index:70;top:48px;bottom:0;width:min(360px,88vw);
+   box-shadow:0 18px 45px rgba(0,0,0,.42);transition:transform .18s ease;visibility:visible;
+ }
+ .sidebar{left:0;transform:translateX(-105%);border-right:1px solid var(--line)}
+ .inspector{right:0;transform:translateX(105%);border-left:1px solid var(--line)}
+ body.drawer-left .sidebar{transform:translateX(0)}
+ body.drawer-right .inspector{transform:translateX(0)}
+ .drawer-close{display:flex;position:absolute;z-index:3;align-items:center;justify-content:center;width:38px;height:38px;border:0;background:transparent;color:var(--muted);font-size:24px;cursor:pointer}
+ .sidebar .drawer-close{left:4px;right:auto;top:0}
+ .sidebar .panel-head{padding-left:48px}
+ .inspector .drawer-close{right:4px;top:2px}
+ .inspector .side-tabs{padding-right:42px}
+ .touch-scrim{position:fixed;z-index:65;inset:48px 0 0;background:rgba(0,0,0,.42)}
+ body.drawer-left .touch-scrim,body.drawer-right .touch-scrim,body.mobile-menu-open .touch-scrim{display:block}
+ .editor-wrap{min-width:0;width:100%}
+ .dochead{height:44px;padding:0 10px}
+ .editor{padding:38px max(28px,calc((100% - 720px)/2)) 110px}
+ .pages{padding:16px 54px}
+ .page{width:calc(420px * var(--bookZoom) * var(--book-fit));height:calc(630px * var(--bookZoom) * var(--book-fit));padding:calc(53px * var(--bookZoom) * var(--book-fit)) calc(48px * var(--bookZoom) * var(--book-fit)) calc(45px * var(--bookZoom) * var(--book-fit));font-size:calc(var(--bookFontPx,12px) * var(--bookZoom) * var(--book-fit));}
+ .page .folio{bottom:calc(17px * var(--bookZoom) * var(--book-fit));font-size:calc(10px * var(--bookZoom) * var(--book-fit))}
+ .booktools{right:10px;top:8px}.pagecounter{bottom:6px}
+ .mobile-sheet{position:fixed;z-index:75;top:56px;right:8px;width:min(320px,calc(100vw - 16px));max-height:calc(var(--app-height) - 70px);overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px}
+ body.mobile-menu-open .mobile-sheet{display:block}
+ .mobile-sheet button{display:flex;width:100%;align-items:center;justify-content:space-between;border:0;background:transparent;color:var(--ink);padding:11px 12px;border-radius:8px;text-align:left;min-height:44px;cursor:pointer}
+ .mobile-sheet button:hover{background:var(--panel)}
+ .mobile-sheet .menu-sep{height:1px;background:var(--line);margin:5px 4px}
+ .mobile-sheet .hint{font-size:10px;color:var(--muted)}
+ .theme-popover{z-index:90}
+}
+
+/* Phone: single-pane writing surface, minimal chrome. */
+@media(max-width:699px){
+ .app{grid-template-rows:48px 1fr 26px}
+ .statusbar{gap:8px;padding:0 8px;white-space:nowrap;overflow:hidden}
+ .statusbar #projectStats,.statusbar #pageStats,.statusbar #cursorStats,.statusbar span:last-child{display:none}
+ .touch-title{max-width:43vw;font-size:14px}
+ .touch-top-btn{min-width:40px;padding:0 8px}
+ .dochead{height:42px;padding:0 8px;gap:6px}
+ .title-input{font-size:16px}
+ .small-input{width:70px}
+ .editor{padding:28px 18px 90px;font-size:calc(17px * var(--editorZoom));line-height:1.68}
+ .findbar{left:8px;right:8px;top:8px}.findbar input{width:auto;flex:1;min-width:0}
+ .pages{padding:12px 40px 34px}
+ .navbtn{width:34px;height:58px;font-size:22px}.navbtn.prev{left:3px}.navbtn.next{right:3px}
+ .booktools{display:none}
+ .sidebar,.inspector{width:min(92vw,380px)}
+}
+
+/* When an on-screen keyboard is reducing the visual viewport, spend the space on writing. */
+body.keyboard-open .app{grid-template-rows:44px 1fr 0}
+body.keyboard-open .statusbar{display:none}
+body.keyboard-editor .dochead{display:none}
+body.keyboard-editor .topbar{height:44px}
+body.keyboard-editor .sidebar,body.keyboard-editor .inspector{top:44px}
+body.keyboard-editor .touch-scrim{inset:44px 0 0}
+body.keyboard-editor .editor{padding-top:22px;padding-bottom:42px}
+body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54px)}
+
+@media print{
+  /* Mercury's Print button uses a dedicated Letter-sheet print document.
+     This fallback simply prints the editor if the browser's own Print command is invoked. */
+  .topbar,.sidebar,.inspector,.statusbar,.book-stage,.findbar{display:none!important}
+  html,body,.app,.workspace,.editor-wrap,.editor-shell{height:auto!important;overflow:visible!important;background:white!important}
+  .editor{color:#111!important;background:white!important;max-width:none!important;padding:.75in!important;font-size:11pt!important}
+}
+
+:root[data-theme="paper"]{
+  --bg:#e7e0d4; --panel:#eee8de; --panel2:#f5efe5; --ink:#2c2923; --muted:#746e65;
+  --line:#cfc5b7; --accent:#9a6f1f; --paper:#fffdf8; --paperink:#211f1b; --danger:#a33f3f;
+  --shadow:0 12px 30px rgba(68,54,35,.18); --selection:#e7c45f; --selectionText:#211a09;
+}
+
+:root[data-theme="custom"]{
+  --bg:var(--custom-bg,#101b16);
+  --panel:var(--custom-panel,#14251d);
+  --panel2:var(--custom-panel2,#193126);
+  --ink:var(--custom-ink,#d9f3df);
+  --muted:var(--custom-muted,#86a990);
+  --line:var(--custom-line,#315340);
+  --accent:var(--custom-accent,#72e09b);
+  --paper:var(--custom-paper,#ecf7ee);
+  --paperink:var(--custom-paperink,#132018);
+  --danger:var(--custom-danger,#d66c6c);
+  --selection:var(--custom-selection,#8affb1);
+  --selectionText:var(--custom-selectionText,#0d1711);
+}
+.theme-popover{
+  position:fixed;top:48px;right:12px;z-index:1000;width:286px;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--shadow);padding:12px;font-family:var(--ui);color:var(--ink)
+}
+.theme-popover.hidden{display:none}
+.theme-popover h3{margin:0 0 9px;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.theme-presets{display:flex;gap:6px;margin-bottom:10px}
+.theme-presets .btn{flex:1}
+.theme-grid{display:grid;grid-template-columns:1fr 38px;gap:7px 10px;align-items:center}
+.theme-grid label{font-size:11px;color:var(--muted)}
+.theme-grid input[type="color"]{width:38px;height:26px;border:1px solid var(--line);padding:1px;background:var(--panel2);border-radius:5px}
+.theme-actions{display:flex;gap:6px;margin-top:11px}
+.theme-actions .btn{flex:1}
+.theme-note{font-size:9px;line-height:1.35;color:var(--muted);margin-top:8px}
+
+:root[data-theme="paper"] body{background:var(--bg);color:var(--ink)}
+:root[data-theme="paper"] .topbar,:root[data-theme="paper"] .statusbar{background:#ddd4c7;border-color:#c3b8a8;color:#514b43}
+:root[data-theme="paper"] .sidebar,:root[data-theme="paper"] .inspector{background:var(--panel)}
+:root[data-theme="paper"] .editor-wrap,:root[data-theme="paper"] .editor-shell{background:#e3dbcf}
+:root[data-theme="paper"] .dochead{background:#e8e0d5;border-color:#c9beaf}
+:root[data-theme="paper"] .editor{background:#faf6ee;color:#292620;caret-color:#6f541b}
+:root[data-theme="paper"] .btn:hover,:root[data-theme="paper"] .tree-item:hover{background:#d9d0c4}
+:root[data-theme="paper"] .tree-item.active{background:#ded2bc}
+:root[data-theme="paper"] .stat,:root[data-theme="paper"] .field input,:root[data-theme="paper"] .field textarea,:root[data-theme="paper"] .field select{background:#e6ddd0;border-color:#c5b9aa;color:#39342d}
+:root[data-theme="paper"] .findbar{background:#eee6da;border-color:#bfb3a2}
+:root[data-theme="paper"] .findbar input{background:#fffaf1;color:#2b2721;border-color:#bdb09e}
+:root[data-theme="paper"] .findbar button{background:#d8cec0;color:#352f29}
+:root[data-theme="paper"] .badge{color:#5e574e;border-color:#bdb1a2}
+.editor::selection,.title-input::selection,.field input::selection,.field textarea::selection{background:var(--selection);color:var(--selectionText)}
+.editor::-moz-selection,.title-input::-moz-selection,.field input::-moz-selection,.field textarea::-moz-selection{background:var(--selection);color:var(--selectionText)}
+.ai-chat{display:flex;flex-direction:column;height:100%;min-height:0}
+.ai-log{flex:1;overflow:auto;padding:10px}
+.ai-msg{margin:0 0 10px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.5}
+.ai-msg.user{white-space:pre-wrap}
+.ai-msg.assistant p{margin:.45em 0}.ai-msg.assistant p:first-child{margin-top:0}.ai-msg.assistant p:last-child{margin-bottom:0}
+.ai-msg.assistant h1,.ai-msg.assistant h2,.ai-msg.assistant h3{margin:.65em 0 .3em;font-family:var(--serif);line-height:1.2}
+.ai-msg.assistant h1{font-size:1.25em}.ai-msg.assistant h2{font-size:1.14em}.ai-msg.assistant h3{font-size:1.05em}
+.ai-msg.assistant ul,.ai-msg.assistant ol{margin:.45em 0;padding-left:1.6em}
+.ai-msg.assistant li{margin:.18em 0}
+.ai-msg.assistant code{font-family:var(--mono);font-size:.92em;background:rgba(127,127,127,.15);padding:.08em .28em;border-radius:3px}
+.ai-msg.assistant pre{overflow:auto;background:rgba(127,127,127,.12);border:1px solid var(--line);border-radius:6px;padding:8px;white-space:pre-wrap}
+.ai-msg.assistant pre code{background:transparent;padding:0}
+.ai-msg.assistant blockquote{margin:.55em 0;padding-left:.75em;border-left:2px solid var(--line);color:var(--muted)}
+.ai-msg.user{margin-left:24px;background:#2a2926}
+.ai-msg.assistant{margin-right:14px;background:#242424}
+:root[data-theme="paper"] .ai-msg.user{background:#e6dccd}
+:root[data-theme="paper"] .ai-msg.assistant{background:#f7f0e5}
+.ai-compose{border-top:1px solid var(--line);padding:9px}
+.ai-compose textarea{width:100%;height:80px;resize:none;background:#1a1a1a;color:#ddd;border:1px solid #444;border-radius:7px;padding:8px;outline:0}
+:root[data-theme="paper"] .ai-compose textarea{background:#fffaf1;color:#2d2923;border-color:#bdb19f}
+.ai-row{display:flex;gap:6px;align-items:center;margin-top:6px}
+.ai-row select{min-width:0;flex:1;background:#252525;color:#ddd;border:1px solid #444;border-radius:6px;padding:5px}
+:root[data-theme="paper"] .ai-row select{background:#ebe1d3;color:#312d27;border-color:#bfb3a3}
+.ai-send{border:1px solid #5c4b2f;background:#3a3020;color:#f3dfaa;border-radius:6px;padding:6px 10px;cursor:pointer}
+.ai-status{font-size:10px;color:var(--muted);margin-top:5px}
+
+
+:root[data-theme="paper"] .brand,
+:root[data-theme="paper"] .btn,
+:root[data-theme="paper"] .iconbtn,
+:root[data-theme="paper"] .panel-head,
+:root[data-theme="paper"] .side-tab,
+:root[data-theme="paper"] .tree-item,
+:root[data-theme="paper"] .tree-item.chapter,
+:root[data-theme="paper"] .tree-item.scene,
+:root[data-theme="paper"] .title-input,
+:root[data-theme="paper"] .small-input,
+:root[data-theme="paper"] .stat strong,
+:root[data-theme="paper"] .card,
+:root[data-theme="paper"] .field label,
+:root[data-theme="paper"] .ai-status,
+:root[data-theme="paper"] .ai-msg,
+:root[data-theme="paper"] .ai-send { color:#2f2a24; }
+:root[data-theme="paper"] .btn.active,
+:root[data-theme="paper"] .side-tab.active { color:#5b4215; }
+:root[data-theme="paper"] .btn:hover,
+:root[data-theme="paper"] .iconbtn:hover { color:#211d18;border-color:#b8ab99; }
+:root[data-theme="paper"] .tree-item .meta,
+:root[data-theme="paper"] .stat span,
+:root[data-theme="paper"] .ai-status,
+:root[data-theme="paper"] .field label,
+:root[data-theme="paper"] .panel-head { color:#71695f; }
+:root[data-theme="paper"] .tree-item .del { color:#8a7f71; }
+:root[data-theme="paper"] .tree-item .del:hover { color:#9f3d3d; }
+:root[data-theme="paper"] .small-input { background:#f5eee3;border-color:#c0b4a4; }
+:root[data-theme="paper"] .progress { background:#cfc4b4; }
+:root[data-theme="paper"] .progress > i { background:#a77b29; }
+:root[data-theme="paper"] .side-tab { border-color:transparent; }
+:root[data-theme="paper"] .side-tab.active { border-bottom-color:#9a6f1f; }
+:root[data-theme="paper"] .brand em { color:#795716; }
+:root[data-theme="paper"] .toast { background:#f6efe4;color:#302b24;border-color:#b9ad9d; }
+
+
+.formatbar{display:flex;gap:6px;flex-wrap:wrap}
+.formatbar button{min-width:34px;height:30px;border:1px solid var(--line);background:#292929;color:#ddd;border-radius:6px;cursor:pointer;font-family:var(--serif)}
+.formatbar button:hover{border-color:#756342;background:#333}
+.formatbar .fmt-b{font-weight:800}.formatbar .fmt-i{font-style:italic}.formatbar .fmt-code{font-family:var(--mono);font-size:10px}
+:root[data-theme="paper"] .formatbar button{background:#e8dfd2;color:#302b24;border-color:#c5b9aa}
+:root[data-theme="paper"] .formatbar button:hover{background:#ddd1c1;border-color:#a9977f}
+
+.tree-scope{display:flex;align-items:center;gap:4px;padding:7px 9px;border-bottom:1px solid var(--line);font-size:10px;color:var(--muted)}
+.tree-scope span{margin-right:auto;text-transform:uppercase;letter-spacing:.06em}
+.tree-scope button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:5px;padding:4px 7px;cursor:pointer}
+.tree-scope button.active{background:#342f24;border-color:#5a4c31;color:#f6e1a9}
+:root[data-theme="paper"] .tree-scope button.active{background:#b7892f;border-color:#8f681f;color:#fffaf0}
+.disclosure{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;background:transparent;color:inherit;cursor:pointer;padding:0}
+.align-center{text-align:center!important;text-indent:0!important}.align-right{text-align:right!important;text-indent:0!important}.align-justify{text-align:justify!important;text-indent:0!important}
+:root[data-theme="paper"] input[type="number"],:root[data-theme="paper"] .small-input,:root[data-theme="paper"] .field input,:root[data-theme="paper"] .field select{color-scheme:light}
+.page strong{font-weight:700}.page em{font-style:italic}
+.save-note{font-size:10px;line-height:1.5;color:var(--muted);margin-top:8px}
+.ai-selection-note{font-size:10px;color:var(--muted);padding:0 0 4px}
+
+
+/* v7 paper-mode contrast corrections */
+:root[data-theme="paper"] #viewEditor.active,
+:root[data-theme="paper"] #viewPages.active,
+:root[data-theme="paper"] #focusBtn.active,
+:root[data-theme="paper"] .btn.active{
+  background:#b7892f !important;
+  border-color:#8f681f !important;
+  color:#fffaf0 !important;
+}
+:root[data-theme="paper"] .ai-send{
+  background:#9b7024 !important;
+  border-color:#7e5a1b !important;
+  color:#fff8e8 !important;
+  font-weight:700;
+}
+:root[data-theme="paper"] .ai-send:hover{
+  background:#87601d !important;
+  color:#fff !important;
+}
+:root[data-theme="paper"] .side-tab.active{
+  background:#ddd0bc;
+  color:#5b4215 !important;
+}
+.selection-target{
+  margin:0 0 7px;padding:7px 8px;border:1px solid #6e5a32;border-left:3px solid var(--accent);
+  border-radius:6px;background:#27231c;color:#e9dfca;font:11px/1.4 var(--serif);
+  max-height:74px;overflow:hidden;
+}
+:root[data-theme="paper"] .selection-target{
+  background:#f0e2c8;color:#3d311e;border-color:#c6a35d;border-left-color:#9a6f1f;
+}
+.md-h1,.md-h2,.md-h3{font-family:var(--serif);font-weight:700;text-indent:0!important}
+.md-h1{font-size:1.28em;margin:1.15em 0 .65em!important}
+.md-h2{font-size:1.14em;margin:1em 0 .55em!important}
+.md-h3{font-size:1.04em;margin:.9em 0 .5em!important}
+.save-capability{margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:10px;line-height:1.45;color:var(--muted)}
+
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><em>MERCURY</em> / WRITER <span style="font-size:10px;color:#777">1.2.7</span></div>
+<div id="themePopover" class="theme-popover hidden" role="dialog" aria-label="Theme editor">
+  <h3>Theme</h3>
+  <div class="theme-presets">
+    <button class="btn" id="themeDark">Dark</button>
+    <button class="btn" id="themePaper">Paper</button>
+    <button class="btn" id="themeCustom">Custom</button>
+  </div>
+  <div class="theme-grid">
+    <label>Background</label><input type="color" data-theme-var="bg">
+    <label>Panels</label><input type="color" data-theme-var="panel">
+    <label>Raised panels</label><input type="color" data-theme-var="panel2">
+    <label>Text</label><input type="color" data-theme-var="ink">
+    <label>Muted text</label><input type="color" data-theme-var="muted">
+    <label>Lines</label><input type="color" data-theme-var="line">
+    <label>Accent</label><input type="color" data-theme-var="accent">
+    <label>Book paper</label><input type="color" data-theme-var="paper">
+    <label>Book text</label><input type="color" data-theme-var="paperink">
+    <label>Selection</label><input type="color" data-theme-var="selection">
+  </div>
+  <div class="theme-actions">
+    <button class="btn" id="themeReset">Reset Custom</button>
+    <button class="btn" id="themeClose">Done</button>
+  </div>
+  <div class="theme-note">Dark and Paper are permanent presets. Custom is stored only in this browser and changes appearance only.</div>
+</div>
+
+    <button class="btn touch-only touch-top-btn" id="touchManuscript" title="Manuscript" aria-label="Open manuscript">☰</button>
+    <div class="touch-only touch-title" id="touchSceneTitle">Untitled Scene</div>
+    <div class="spacer touch-only"></div>
+    <button class="btn touch-only touch-top-btn" id="touchAI" title="AI" aria-label="Open AI">AI</button>
+    <button class="btn touch-only touch-top-btn" id="touchMenu" title="More" aria-label="More commands">⋯</button>
+    <button class="btn" data-action="new">New</button>
+    <button class="btn" data-action="open">Open</button>
+    <button class="btn" data-action="save">Save</button>
+    <div class="sep"></div>
+    <button class="btn optional" data-action="undo">Undo</button>
+    <button class="btn optional" data-action="redo">Redo</button>
+    <div class="sep optional"></div>
+    <button class="btn" data-action="find">Find</button>
+    <button class="btn optional" data-action="print" title="Browser print; use Save → PDF for reliable PDF export">Print</button>
+    <div class="sep optional"></div>
+    <button class="btn optional" id="zoomOut">−</button><span id="zoomLabel" class="badge">100%</span><button class="btn optional" id="zoomIn">＋</button>
+    <div class="spacer"></div>
+    <span id="saveState" class="badge">Saved locally</span>
+    <button class="btn" id="viewEditor">Editor</button>
+    <button class="btn" id="viewPages">Book View</button>
+    <button class="btn" id="focusBtn">Focus</button><button class="btn" id="themeBtn" data-action="themeEditor" title="Theme">Theme</button>
+  </div>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <button class="drawer-close" id="closeManuscriptDrawer" aria-label="Close manuscript">×</button>
+      <div class="panel-head">Manuscript <span class="spacer"></span>
+        <button class="iconbtn" title="Add chapter" id="addChapter">＋</button>
+      </div>
+      <div id="tree" class="tree"></div>
+    </aside>
+
+    <main class="editor-wrap">
+      <div class="dochead">
+        <input id="titleInput" class="title-input" value="" spellcheck="false">
+        <input id="sceneTarget" class="small-input" type="number" min="0" step="100" title="Scene target words">
+      </div>
+      <div id="editorShell" class="editor-shell">
+        <div id="findbar" class="findbar hidden">
+          <input id="findInput" placeholder="Find in scene…"><span id="findCount" style="align-self:center;font-size:11px;color:#aaa;min-width:52px;text-align:center">0 / 0</span>
+          <button type="button" id="findPrev" title="Previous">↑</button>
+          <button type="button" id="findNext" title="Next">↓</button>
+          <button type="button" id="closeFind">×</button>
+        </div>
+        <textarea id="editor" class="editor" spellcheck="true"></textarea>
+        <div id="bookStage" class="book-stage hidden">
+          <div id="pages" class="pages"></div>
+          <div class="booknav">
+            <button id="prevPage" class="navbtn prev" title="Previous page">‹</button>
+            <button id="nextPage" class="navbtn next" title="Next page">›</button>
+            <div class="booktools"><button id="bookZoomOut">−</button><span id="bookZoomLabel" style="font:10px var(--mono);min-width:34px;text-align:center;color:var(--muted)">100%</span><button id="bookZoomIn">＋</button></div>
+            <div id="pageCounter" class="pagecounter">Page 1 of 1</div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="inspector">
+      <button class="drawer-close" id="closeInspectorDrawer" aria-label="Close inspector">×</button>
+      <div class="side-tabs">
+        <div class="side-tab active" data-tab="stats">Stats</div>
+        <div class="side-tab" data-tab="notes">Notes</div>
+        <div class="side-tab" data-tab="project">Project</div><div class="side-tab" data-tab="ai">AI</div>
+      </div>
+      <div id="statsTab" class="side-body"></div>
+      <div id="notesTab" class="side-body hidden"></div>
+      <div id="projectTab" class="side-body hidden"></div><div id="aiTab" class="side-body hidden"></div>
+    </aside>
+  </div>
+
+  <div class="statusbar">
+    <span id="sceneStats">0 words</span>
+    <span id="projectStats">0 total</span>
+    <span id="pageStats">~0 pages</span>
+    <span class="spacer"></span>
+    <span id="cursorStats">Ln 1, Col 1</span>
+    <span>300 words/page</span>
+  </div>
+</div>
+<div id="touchScrim" class="touch-scrim"></div>
+<div id="mobileSheet" class="mobile-sheet" role="menu" aria-label="Mercury commands">
+  <button data-mobile-command="new"><span>New manuscript</span><span class="hint">⌘⇧N</span></button>
+  <button data-mobile-command="open"><span>Open…</span><span class="hint">⌘O</span></button>
+  <button data-mobile-command="save"><span>Save / Export…</span><span class="hint">⌘S</span></button>
+  <div class="menu-sep"></div>
+  <button data-mobile-command="undo"><span>Undo</span></button>
+  <button data-mobile-command="redo"><span>Redo</span></button>
+  <button data-mobile-command="find"><span>Find in scene</span><span class="hint">⌘F</span></button>
+  <div class="menu-sep"></div>
+  <button data-mobile-command="editor"><span>Editor</span></button>
+  <button data-mobile-command="pages"><span>Book View</span></button>
+  <button data-mobile-command="focus"><span>Focus</span></button>
+  <button data-mobile-command="theme"><span>Theme…</span></button>
+  <div class="menu-sep"></div>
+  <button data-mobile-command="stats"><span>Stats</span></button>
+  <button data-mobile-command="notes"><span>Notes</span></button>
+  <button data-mobile-command="project"><span>Project / Recovery</span></button>
+</div>
+
+<input id="fileOpen" type="file" class="hidden">
+<div id="toast" class="toast"></div><div class="measure-wrap"><div id="measurePage" class="measure-page"><div id="measureContent" class="content"></div></div></div>
+
+
+<div id="saveModal" class="modal-backdrop hidden">
+ <div class="modal">
+  <div class="modal-head">Save / Export</div>
+  <div class="modal-body">
+   <p style="margin-top:0;color:var(--muted);font-size:12px">Save the editable Mercury project, or export the selected manuscript scope.</p>
+   <div class="field" style="margin-bottom:12px">
+     <label>Filename</label>
+     <input id="saveBaseName" type="text" placeholder="manuscript">
+     <div class="save-note">Mercury adds the file extension.</div>
+   </div>
+   <div class="field" style="margin-bottom:12px">
+     <label>Output scope</label>
+     <select id="saveOutputScope">
+       <option value="all">Whole manuscript</option>
+       <option value="chapter">Current chapter</option>
+       <option value="scene">Current scene</option>
+     </select>
+     <div id="saveScopeNote" class="save-note"></div>
+   </div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <button class="btn" id="saveMercury" style="border:1px solid var(--line);padding:14px;text-align:left"><b>Mercury Project</b><br><span style="font-size:10px;color:var(--muted)">.mercury — full editable project</span></button>
+    <button class="btn" id="saveTxt" style="border:1px solid var(--line);padding:14px;text-align:left"><b>Plain Text</b><br><span style="font-size:10px;color:var(--muted)">.txt — universal text</span></button>
+    <button class="btn" id="saveMd" style="border:1px solid var(--line);padding:14px;text-align:left"><b>Markdown</b><br><span style="font-size:10px;color:var(--muted)">.md — structured plain text</span></button>
+    <button class="btn" id="savePdf" style="border:1px solid var(--line);padding:14px;text-align:left"><b>PDF</b><br><span style="font-size:10px;color:var(--muted)">.pdf — book-sized export</span></button>
+   </div>
+   <div id="saveCapability" class="save-capability"></div><div id="pdfExportStatus" style="margin-top:12px;font-size:11px;color:var(--muted)"></div>
+  </div>
+  <div class="modal-foot"><button class="btn" id="closeSave">Close</button></div>
+ </div>
+</div>
+
+<div id="helpModal" class="modal-backdrop hidden">
+ <div class="modal">
+  <div class="modal-head">Mercury Writer — Keyboard</div>
+  <div class="modal-body">
+   <p><kbd>⌘/Ctrl S</kbd> Save / Export &nbsp; <kbd>⌘/Ctrl O</kbd> Open &nbsp; <kbd>⌘/Ctrl F</kbd> Find</p>
+   <p><kbd>⌘/Ctrl B</kbd> Bold Markdown &nbsp; <kbd>⌘/Ctrl I</kbd> Italic Markdown &nbsp; <kbd>⌘/Ctrl Shift F</kbd> Focus mode</p>
+   <p><kbd>⌘/Ctrl Shift N</kbd> New scene &nbsp; <kbd>Esc</kbd> Close find/focus</p>
+   <p>Autosave keeps one current project state in browser-local storage and creates no download files. <b>Save</b> creates .mercury, TXT, Markdown, or PDF files.</p>
+  </div>
+  <div class="modal-foot"><button class="btn" id="closeHelp">Close</button></div>
+ </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2,10);
+const STORAGE = "mercury_writer_project_v1";
+const PREVIOUS_STORAGE = "mercury_writer_previous_project_v1";
+const COLLAPSED_STORAGE = "mercury_writer_collapsed_chapters_v1";
+const OUTPUT_SCOPE_STORAGE = "mercury_writer_output_scope_v1";
+let collapsedChapters;try{collapsedChapters=new Set(JSON.parse(localStorage.getItem(COLLAPSED_STORAGE)||"[]"))}catch(_){collapsedChapters=new Set()}
+let outputScope=localStorage.getItem(OUTPUT_SCOPE_STORAGE)||"all";
+
+const THEME_CUSTOM_STORAGE="mercury_custom_theme_v1";
+const CUSTOM_THEME_DEFAULTS={
+ bg:"#101b16",panel:"#14251d",panel2:"#193126",ink:"#d9f3df",muted:"#86a990",
+ line:"#315340",accent:"#72e09b",paper:"#ecf7ee",paperink:"#132018",
+ danger:"#d66c6c",selection:"#8affb1",selectionText:"#0d1711"
+};
+function loadCustomTheme(){
+ try{return {...CUSTOM_THEME_DEFAULTS,...JSON.parse(localStorage.getItem(THEME_CUSTOM_STORAGE)||"{}")}}
+ catch(e){return {...CUSTOM_THEME_DEFAULTS}}
+}
+function installCustomTheme(values=loadCustomTheme()){
+ for(const [k,v] of Object.entries(values)){
+   document.documentElement.style.setProperty(`--custom-${k}`,v);
+ }
+}
+function themeEditorValues(){
+ const vals=loadCustomTheme();
+ document.querySelectorAll("[data-theme-var]").forEach(input=>{
+   if(vals[input.dataset.themeVar])input.value=vals[input.dataset.themeVar];
+ });
+}
+function saveCustomColor(name,value){
+ const vals=loadCustomTheme(); vals[name]=value;
+ localStorage.setItem(THEME_CUSTOM_STORAGE,JSON.stringify(vals));
+ installCustomTheme(vals);
+ applyTheme("custom");
+}
+function openThemeEditor(){
+ themeEditorValues();
+ $("#themePopover").classList.toggle("hidden");
+}
+function closeThemeEditor(){ $("#themePopover").classList.add("hidden") }
+
+let dirtyTimer=null, activeId=null, currentView="editor", focusMode=false, currentBookPage=0, editorZoom=Number(localStorage.getItem("mercury_editor_zoom"))||1, bookZoom=Number(localStorage.getItem("mercury_book_zoom"))||1, renderedPages=[], lastEditorSelection={start:0,end:0,text:""};
+
+const sample = {
+  version:1,
+  title:"The Last Light",
+  author:"Morgan Hale",
+  targetWords:70000,
+  wordsPerPage:300,
+  trimSize:"6x9",
+  created:new Date().toISOString(),
+  modified:new Date().toISOString(),
+  chapters:[
+    {id:uid(),title:"Chapter 1",notes:"A quiet opening: establish place, character, and the small disruption that starts the story.",scenes:[
+      {id:uid(),title:"The Station",target:1200,notes:"Let the setting do some of the exposition. Keep the mystery ordinary at first.",text:`The station clock had stopped at 4:17, though nobody in Bellweather seemed to know when.
+
+Mara noticed it because she had arrived early enough to have nothing else to look at. The platform was empty except for a wooden bench polished by a century of coats and elbows, a vending machine humming beside the locked ticket window, and a sparrow that kept hopping beneath the iron canopy as if it had misplaced something.
+
+Across the tracks, the last houses of town climbed the hill toward the water tower. Their kitchen windows were beginning to glow.
+
+The train was due at half past four.
+
+At 4:26, the loudspeaker clicked once.
+
+Mara looked up.
+
+Nothing followed. No announcement, no apology, only the faint electrical breath of the speaker and then silence again. She put her book back into her bag. Somewhere beyond the bend, too far away to see, came the low note of a horn.`},
+      {id:uid(),title:"The Arrival",target:1200,notes:"Introduce a concrete question that can carry the reader into the next chapter.",text:`The train arrived without its usual rush of light.
+
+It came around the bend slowly, three silver cars moving through the blue end of the afternoon. Mara stood. The sparrow vanished into the rafters.
+
+Only one door opened.
+
+A man stepped down carrying a small brown suitcase. He was perhaps sixty, perhaps older, dressed too carefully for the weather. He looked first at the station, then at the stopped clock, and finally at Mara.
+
+"Is this Bellweather?"
+
+She almost laughed. There was nowhere else it could be.
+
+"Yes."
+
+He nodded as though she had confirmed something considerably more important.
+
+Behind him the door folded shut. The train began moving before he had reached the bench.`}
+    ]},
+    {id:uid(),title:"Chapter 2",notes:"Open the world slightly. The first chapter's question should now have consequences.",scenes:[
+      {id:uid(),title:"Main Street",target:1200,notes:"Use movement through town to reveal history naturally.",text:`By five o'clock the shops along Main Street were turning on their signs.
+
+Mara walked two blocks ahead of the stranger, although she had not agreed to show him anywhere. Bellweather was the sort of town where directions became companionship almost by accident. The hotel was beside the pharmacy. The pharmacy was across from the diner. Everyone knew this, which meant nobody had bothered putting up a useful sign in thirty years.
+
+At the corner she stopped.
+
+The man had stopped too.
+
+He was looking at the old cinema.
+
+Its marquee had been empty since spring, white plastic ribs showing where the letters used to hang. Above them, faded gold paint still spelled THE ORPHEUM.
+
+"You know it?" Mara asked.
+
+The man set down his suitcase.
+
+"I used to," he said.`}
+    ]}
+  ]
+};
+activeId=sample.chapters[0].scenes[0].id;
+
+function clone(o){return JSON.parse(JSON.stringify(o))}
+function load(){
+  try{
+    const raw=localStorage.getItem(STORAGE);
+    return raw?JSON.parse(raw):clone(sample);
+  }catch(e){return clone(sample)}
+}
+let project=load();
+if(!activeId || !findScene(activeId)) activeId = project.chapters[0]?.scenes[0]?.id || null;
+
+function toast(msg){
+  const t=$("#toast");t.textContent=msg;t.classList.add("show");
+  clearTimeout(t._to); t._to=setTimeout(()=>t.classList.remove("show"),1300);
+}
+function words(t){return (t.trim().match(/\b[\w’'-]+\b/g)||[]).length}
+function chars(t){return t.length}
+function sentences(t){return (t.match(/[.!?]+(?=\s|$)/g)||[]).length}
+function paragraphs(t){return t.trim()?t.trim().split(/\n\s*\n/).length:0}
+function readingMins(w){return Math.max(1,Math.round(w/250))}
+function projectWords(){return project.chapters.reduce((a,c)=>a+c.scenes.reduce((x,s)=>x+words(s.text),0),0)}
+function findScene(id){
+ for(const c of project.chapters){const s=c.scenes.find(s=>s.id===id);if(s)return {chapter:c,scene:s}}
+ return null;
+}
+function active(){return findScene(activeId)}
+function markDirty(){
+ $("#saveState").textContent="Autosaving…";
+ clearTimeout(dirtyTimer);
+ dirtyTimer=setTimeout(()=>{
+   project.modified=new Date().toISOString();
+   localStorage.setItem(STORAGE,JSON.stringify(project));
+   $("#saveState").textContent="Saved locally";
+ },350);
+}
+function syncFromEditor(){
+ const a=active(); if(!a)return;
+ a.scene.text=$("#editor").value;
+ a.scene.title=$("#titleInput").value || "Untitled Scene"; const tt=$("#touchSceneTitle");if(tt)tt.textContent=a.scene.title;
+ a.scene.target=Number($("#sceneTarget").value)||0;
+ markDirty(); renderTree(); renderStats(); updateStatus();
+}
+function selectScene(id){
+ syncFromEditor();
+ activeId=id; currentBookPage=0;
+ const a=active(); if(!a)return;
+ $("#editor").value=a.scene.text||"";
+ $("#titleInput").value=a.scene.title||"Untitled Scene";
+ $("#sceneTarget").value=a.scene.target||0;
+ renderTree();renderStats();renderNotes();updateStatus();renderPages();
+ const tt=$("#touchSceneTitle");if(tt)tt.textContent=a.scene.title||"Untitled Scene";
+ if(typeof closeTouchPanels==="function"&&isAdaptive())closeTouchPanels();
+ $("#editor").focus();
+}
+function setOutputScope(scope){
+ outputScope=["all","chapter","scene"].includes(scope)?scope:"all";
+ localStorage.setItem(OUTPUT_SCOPE_STORAGE,outputScope);
+ currentBookPage=0;
+ renderTree();
+ renderPages();
+ const ss=$("#saveOutputScope");if(ss)ss.value=outputScope;
+ updateSaveScopeNote();
+}
+function outputScopeLabel(){
+ const a=active();
+ if(outputScope==="chapter")return a?.chapter?.title||"Current chapter";
+ if(outputScope==="scene")return a?.scene?.title||"Current scene";
+ return "Whole manuscript";
+}
+function renderTree(){
+ const tree=$("#tree"); tree.innerHTML="";
+ const scope=document.createElement("div");
+ scope.className="tree-scope";
+ scope.innerHTML=`<span>Output</span><button data-scope="all">All</button><button data-scope="chapter">Chapter</button><button data-scope="scene">Scene</button>`;
+ scope.querySelectorAll("button").forEach(b=>{
+   b.classList.toggle("active",b.dataset.scope===outputScope);
+   b.title=b.dataset.scope==="all"?"Print/export whole manuscript":b.dataset.scope==="chapter"?`Print/export ${active()?.chapter?.title||"current chapter"}`:`Print/export ${active()?.scene?.title||"current scene"}`;
+   b.onclick=()=>setOutputScope(b.dataset.scope);
+ });
+ tree.appendChild(scope);
+ project.chapters.forEach((c,ci)=>{
+   const collapsed=collapsedChapters.has(c.id);
+   const ch=document.createElement("div");
+   ch.className="tree-item chapter";
+   ch.innerHTML=`<button class="disclosure" title="${collapsed?"Expand":"Collapse"} chapter">${collapsed?"▸":"▾"}</button><span>${escapeHtml(c.title)}</span><span><span class="meta">${c.scenes.reduce((n,s)=>n+words(s.text),0).toLocaleString()}</span> <button class="del" title="Delete chapter">×</button></span>`;
+   ch.querySelector(".disclosure").onclick=(e)=>{
+     e.stopPropagation();
+     if(collapsed)collapsedChapters.delete(c.id);else collapsedChapters.add(c.id);
+     localStorage.setItem(COLLAPSED_STORAGE,JSON.stringify([...collapsedChapters]));
+     renderTree();
+   };
+   ch.querySelector(".del").onclick=(e)=>{e.stopPropagation();deleteChapter(c.id)};
+   ch.ondblclick=()=>renameChapter(c);
+   tree.appendChild(ch);
+   if(collapsed)return;
+   c.scenes.forEach((s,si)=>{
+     const el=document.createElement("div");el.className="tree-item scene"+(s.id===activeId?" active":"");
+     el.draggable=true; el.dataset.id=s.id;
+     el.innerHTML=`<span>•</span><span>${escapeHtml(s.title)}</span><span><span class="meta">${words(s.text).toLocaleString()}</span> <button class="del" title="Delete scene">×</button></span>`;
+     el.querySelector(".del").onclick=(e)=>{e.stopPropagation();deleteScene(s.id)};
+     el.onclick=()=>selectScene(s.id);
+     el.ondblclick=e=>{e.stopPropagation();renameScene(s)};
+     el.ondragstart=e=>e.dataTransfer.setData("text/plain",s.id);
+     el.ondragover=e=>{e.preventDefault();el.classList.add("dragover")};
+     el.ondragleave=()=>el.classList.remove("dragover");
+     el.ondrop=e=>{e.preventDefault();el.classList.remove("dragover");moveScene(e.dataTransfer.getData("text/plain"),s.id)};
+     tree.appendChild(el);
+   });
+   const add=document.createElement("div");add.className="tree-item scene";
+   add.innerHTML="<span>＋</span><span style='color:#817d75'>New scene</span><span></span>";
+   add.onclick=()=>addScene(c.id);
+   tree.appendChild(add);
+ });
+}
+function moveScene(fromId,toId){
+ if(fromId===toId)return;
+ let fromC,fromIdx,toC,toIdx;
+ project.chapters.forEach(c=>{
+   const i=c.scenes.findIndex(s=>s.id===fromId);if(i>-1){fromC=c;fromIdx=i}
+   const j=c.scenes.findIndex(s=>s.id===toId);if(j>-1){toC=c;toIdx=j}
+ });
+ if(!fromC||!toC)return;
+ const [s]=fromC.scenes.splice(fromIdx,1);
+ if(fromC===toC && fromIdx<toIdx)toIdx--;
+ toC.scenes.splice(toIdx,0,s);markDirty();renderTree();
+}
+function deleteScene(id){
+ const hit=findScene(id); if(!hit)return;
+ if(!confirm(`Delete scene “${hit.scene.title}”?`))return;
+ hit.chapter.scenes=hit.chapter.scenes.filter(s=>s.id!==id);
+ if(!hit.chapter.scenes.length) hit.chapter.scenes.push({id:uid(),title:"Untitled Scene",target:1500,notes:"",text:""});
+ if(activeId===id) activeId=hit.chapter.scenes[0].id;
+ markDirty();refreshAll();
+}
+function deleteChapter(id){
+ if(project.chapters.length===1){toast("A manuscript needs at least one chapter");return}
+ const c=project.chapters.find(c=>c.id===id); if(!c)return;
+ if(!confirm(`Delete chapter “${c.title}” and all of its scenes?`))return;
+ const activeWasInside=c.scenes.some(s=>s.id===activeId);
+ project.chapters=project.chapters.filter(x=>x.id!==id);
+ if(activeWasInside) activeId=project.chapters[0].scenes[0].id;
+ markDirty();refreshAll();
+}
+function renameChapter(c){const n=prompt("Chapter title",c.title);if(n){c.title=n;markDirty();renderTree()}}
+function renameScene(s){const n=prompt("Scene title",s.title);if(n){s.title=n;if(s.id===activeId)$("#titleInput").value=n;markDirty();renderTree()}}
+function addChapter(){
+ const c={id:uid(),title:`Chapter ${project.chapters.length+1}`,notes:"",scenes:[]};
+ project.chapters.push(c);addScene(c.id);markDirty();renderTree();
+}
+function addScene(chapterId){
+ syncFromEditor();
+ const c=project.chapters.find(c=>c.id===chapterId)||project.chapters[0];
+ const s={id:uid(),title:"Untitled Scene",target:1500,notes:"",text:""};
+ c.scenes.push(s);markDirty();selectScene(s.id);
+}
+function escapeHtml(s){return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function renderInlineMarkdown(s){
+ let h=escapeHtml(s||"");
+ // Strong before emphasis.
+ h=h.replace(/\*\*([\s\S]+?)\*\*/g,"<strong>$1</strong>");
+ h=h.replace(/__([\s\S]+?)__/g,"<strong>$1</strong>");
+ h=h.replace(/(^|[^\*])\*([^\*\n]+?)\*(?!\*)/g,"$1<em>$2</em>");
+ h=h.replace(/(^|[^_])_([^_\n]+?)_(?!_)/g,"$1<em>$2</em>");
+ return h;
+}
+function unwrapAlignmentBlock(raw){
+ const m=String(raw||"").match(/^:::\s*(center|right|justify)\s*\n([\s\S]*?)\n:::\s*$/i);
+ return m?{align:m[1].toLowerCase(),body:m[2]}:{align:"",body:String(raw||"")};
+}
+function wrapAlignmentBlock(body,align){
+ return align?`::: ${align}\n${body}\n:::`:body;
+}
+function renderMarkdownBlock(s){
+ const block=unwrapAlignmentBlock(s);
+ const raw=block.body;
+ const hm=raw.match(/^(#{1,3})\s+([\s\S]*)$/);
+ const classes=[];
+ if(block.align)classes.push(`align-${block.align}`);
+ if(hm){
+   const level=hm[1].length;
+   classes.push(`md-h${level}`);
+   return {cls:classes.join(" "),html:renderInlineMarkdown(hm[2]),align:block.align};
+ }
+ return {cls:classes.join(" "),html:renderInlineMarkdown(raw),align:block.align};
+}
+function renderStats(){
+ const a=active();const sw=a?words(a.scene.text):0,total=projectWords(),target=project.targetWords||90000;
+ const pct=Math.min(100,total/target*100);
+ const sceneVisual=a?scenePages(a.scene).length:0;
+ const manuscriptVisual=project.chapters.reduce((n,c)=>n+c.scenes.reduce((x,s)=>x+(s.text.trim()?scenePages(s).length:0),0),0);
+ const rulerScene=(sw/(project.wordsPerPage||300));
+ const rulerTotal=Math.ceil(total/(project.wordsPerPage||300));
+ $("#statsTab").innerHTML=`
+ <div class="card"><h3>Scene</h3><div class="grid2">
+  <div class="stat"><strong>${sw.toLocaleString()}</strong><span>words</span></div>
+  <div class="stat"><strong>${sceneVisual}</strong><span>6×9 visual pages</span></div>
+  <div class="stat"><strong>${paragraphs(a?.scene.text||"")}</strong><span>paragraphs</span></div>
+  <div class="stat"><strong>${readingMins(sw)}</strong><span>min read</span></div>
+ </div>
+ <div style="font-size:10px;color:var(--muted);margin-top:7px">Density ruler: ${rulerScene.toFixed(1)} pages at ~${(project.wordsPerPage||300)} words/page.</div>
+ ${a?.scene.target?`<div class="progress"><i style="width:${Math.min(100,sw/a.scene.target*100)}%"></i></div><div style="font-size:10px;color:var(--muted);margin-top:5px">${Math.round(sw/a.scene.target*100)}% of ${a.scene.target.toLocaleString()} scene target</div>`:""}
+ </div>
+ <div class="card"><h3>Manuscript</h3><div class="grid2">
+  <div class="stat"><strong>${total.toLocaleString()}</strong><span>total words</span></div>
+  <div class="stat"><strong>${manuscriptVisual}</strong><span>6×9 visual pages</span></div>
+  <div class="stat"><strong>${project.chapters.length}</strong><span>chapters</span></div>
+  <div class="stat"><strong>${project.chapters.reduce((n,c)=>n+c.scenes.length,0)}</strong><span>scenes</span></div>
+ </div>
+ <div style="font-size:10px;color:var(--muted);margin-top:7px">Density ruler: ${rulerTotal} pages at ~${(project.wordsPerPage||300)} words/page.</div>
+ <div class="progress"><i style="width:${pct}%"></i></div><div style="font-size:10px;color:var(--muted);margin-top:5px">${pct.toFixed(1)}% of ${target.toLocaleString()} word target</div></div>
+ <div class="card"><h3>Text</h3><div style="font-size:12px;line-height:1.8;color:var(--muted)">
+ Characters: ${chars(a?.scene.text||"").toLocaleString()}<br>
+ Sentences: ${sentences(a?.scene.text||"").toLocaleString()}<br>
+ Average words/sentence: ${sentences(a?.scene.text||"")?Math.round(sw/sentences(a.scene.text)):0}
+ </div></div>
+ <div class="card"><h3>Formatting</h3>
+  <div class="formatbar">
+   <button id="fmtBold" class="fmt-b" title="Bold — Markdown **text**">B</button>
+   <button id="fmtItalic" class="fmt-i" title="Italic — Markdown *text*">I</button>
+   <button id="fmtH1" title="Heading 1 — Markdown #">H1</button>
+   <button id="fmtH2" title="Heading 2 — Markdown ##">H2</button>
+   <button id="fmtH3" title="Heading 3 — Markdown ###">H3</button>
+   <button id="fmtAlignLeft" title="Left — clear Mercury paragraph alignment">L</button>
+   <button id="fmtAlignCenter" title="Center selected paragraph(s)">C</button>
+   <button id="fmtAlignRight" title="Right-align selected paragraph(s)">R</button>
+   <button id="fmtAlignJustify" title="Justify selected paragraph(s)">J</button>
+   <button id="fmtEmDash" title="Insert em dash">—</button>
+  </div>
+  <div class="save-note">Mercury uses minimal Markdown plus Mercury paragraph alignment. Left is the unmarked default; Center, Right, and Justify use readable ::: blocks and render in Book View/PDF.</div>
+ </div>`;
+ bindFormattingControls();
+}
+function replaceEditorSelection(prefix,suffix=prefix,placeholder="text"){
+ const e=$("#editor");
+ e.focus();
+ const start=e.selectionStart,end=e.selectionEnd;
+ const selected=e.value.slice(start,end);
+
+ let replacement;
+ if(!selected){
+   replacement=prefix+placeholder+suffix;
+ }else if(selected.includes("\n")){
+   // Markdown emphasis cannot reliably span Mercury's paragraph/block boundaries.
+   // Format each nonblank selected line independently.
+   replacement=selected.split("\n").map(line=>{
+     if(!line.trim())return line;
+     const leading=(line.match(/^\s*/)||[""])[0];
+     const trailing=(line.match(/\s*$/)||[""])[0];
+     const core=line.slice(leading.length,line.length-trailing.length);
+     return leading+prefix+core+suffix+trailing;
+   }).join("\n");
+ }else{
+   replacement=prefix+selected+suffix;
+ }
+
+ // Native insertion keeps the formatting action in normal Undo/Redo history.
+ e.setSelectionRange(start,end);
+ const undoable=document.execCommand && document.execCommand("insertText",false,replacement);
+ if(!undoable)e.setRangeText(replacement,start,end,"select");
+
+ if(!selected)e.setSelectionRange(start+prefix.length,start+prefix.length+placeholder.length);
+ else e.setSelectionRange(start,start+replacement.length);
+ syncFromEditor();
+}
+function applyParagraphAlignment(mode){
+ const e=$("#editor");e.focus();
+ const value=e.value,start=e.selectionStart,end=e.selectionEnd;
+ // Alignment is a paragraph property: expand any partial selection to blank-line boundaries.
+ let blockStart=value.lastIndexOf("\n\n",Math.max(0,start-1));
+ blockStart=blockStart<0?0:blockStart+2;
+ let blockEnd=value.indexOf("\n\n",end);
+ blockEnd=blockEnd<0?value.length:blockEnd;
+ const selected=value.slice(blockStart,blockEnd);
+ const replacement=selected.split(/(\n\s*\n)/).map(part=>{
+   if(/^\n\s*\n$/.test(part)||!part.trim())return part;
+   const unwrapped=unwrapAlignmentBlock(part.trim());
+   const body=unwrapped.body.trim();
+   return mode==="left"?body:`::: ${mode}\n${body}\n:::`;
+ }).join("");
+ e.setSelectionRange(blockStart,blockEnd);
+ const undoable=document.execCommand&&document.execCommand("insertText",false,replacement);
+ if(!undoable)e.setRangeText(replacement,blockStart,blockEnd,"select");
+ e.setSelectionRange(blockStart,blockStart+replacement.length);
+ syncFromEditor();
+}
+function bindFormattingControls(){
+ const b=$("#fmtBold"),i=$("#fmtItalic"),h1=$("#fmtH1"),h2=$("#fmtH2"),h3=$("#fmtH3"),d=$("#fmtEmDash");
+ if(b)b.onclick=()=>replaceEditorSelection("**","**");
+ if(i)i.onclick=()=>replaceEditorSelection("*","*");
+ const heading=n=>{
+   const e=$("#editor");e.focus();
+   const start=e.selectionStart,end=e.selectionEnd;
+   const lineStart=e.value.lastIndexOf("\n",start-1)+1;
+   const lineEnd=e.value.indexOf("\n",end);
+   const stop=lineEnd<0?e.value.length:lineEnd;
+   const block=e.value.slice(lineStart,stop).replace(/^#{1,3}\s+/,"");
+   e.setRangeText("#".repeat(n)+" "+block,lineStart,stop,"select");syncFromEditor();
+ };
+ if(h1)h1.onclick=()=>heading(1);if(h2)h2.onclick=()=>heading(2);if(h3)h3.onclick=()=>heading(3);
+ const al=$("#fmtAlignLeft"),ac=$("#fmtAlignCenter"),ar=$("#fmtAlignRight"),aj=$("#fmtAlignJustify");
+ if(al)al.onclick=()=>applyParagraphAlignment("left");
+ if(ac)ac.onclick=()=>applyParagraphAlignment("center");
+ if(ar)ar.onclick=()=>applyParagraphAlignment("right");
+ if(aj)aj.onclick=()=>applyParagraphAlignment("justify");
+ if(d)d.onclick=()=>{
+   const e=$("#editor");e.focus();e.setRangeText("—",e.selectionStart,e.selectionEnd,"end");syncFromEditor();
+ };
+}
+function renderNotes(){
+ const a=active();
+ $("#notesTab").innerHTML=`<div class="card"><h3>Scene Notes</h3><div class="field"><textarea id="sceneNotes">${escapeHtml(a?.scene.notes||"")}</textarea></div></div>
+ <div class="card"><h3>Chapter Notes</h3><div class="field"><textarea id="chapterNotes">${escapeHtml(a?.chapter.notes||"")}</textarea></div></div>`;
+ $("#sceneNotes").oninput=e=>{a.scene.notes=e.target.value;markDirty()};
+ $("#chapterNotes").oninput=e=>{a.chapter.notes=e.target.value;markDirty()};
+}
+function renderProject(){
+ $("#projectTab").innerHTML=`<div class="card"><h3>Project</h3>
+ <div class="field"><label>Title</label><input id="pTitle" value="${escapeHtml(project.title||"")}"></div>
+ <div class="field"><label>Author</label><input id="pAuthor" value="${escapeHtml(project.author||"")}"></div>
+ <div class="grid2"><div class="field"><label>Target words</label><input id="pTarget" type="number" value="${project.targetWords||90000}"></div>
+ <div class="field"><label>Words per page</label><input id="pWpp" type="number" min="180" max="500" step="10" value="${project.wordsPerPage||300}"><div class="save-note">Controls Mercury’s 6×9 visual page density. Default: 300.</div></div></div>
+ </div>
+ <div class="card"><h3>Autosave</h3><div class="save-note">Mercury continuously saves the current project in this browser. Disk files are created only with Save / Export.</div></div>
+ <div class="card"><h3>Recovery</h3>
+ <div class="save-note" id="previousProjectInfo"></div>
+ <button class="btn" id="restorePrevious" style="margin-top:8px;width:100%">Restore Previous Project</button>
+ </div>
+ <div class="card"><button class="btn" id="helpBtn" style="width:100%">Keyboard shortcuts</button></div>`;
+ ["pTitle","pAuthor","pTarget","pWpp"].forEach(id=>$("#"+id).oninput=()=>{
+   project.title=$("#pTitle").value;project.author=$("#pAuthor").value;project.targetWords=Number($("#pTarget").value)||90000;project.wordsPerPage=Math.max(180,Math.min(500,Number($("#pWpp").value)||300));markDirty();applyPageDensity();renderStats();updateStatus();renderPages()
+ });
+
+ const prev=previousProjectRecord();
+ $("#previousProjectInfo").textContent=prev?.project
+   ? `Previous project: “${prev.project.title||"Untitled"}”${prev.savedAt?" — "+new Date(prev.savedAt).toLocaleString():""}`
+   : "No previous project snapshot.";
+ $("#restorePrevious").disabled=!prev?.project;
+ $("#restorePrevious").onclick=restorePreviousProject;
+ $("#helpBtn").onclick=()=>$("#helpModal").classList.remove("hidden");
+}
+
+function updateAISelectionDisplay(){
+ const sel=selectedEditorText();
+ const info=$("#aiSelectionInfo"),target=$("#aiSelectionTarget");
+ if(info)info.textContent=sel?`Selected target: ${words(sel)} words`:"No editor text is currently selected.";
+ if(target)target.innerHTML=sel?`<div class="selection-target">${escapeHtml(sel.slice(0,320))}${sel.length>320?"…":""}</div>`:"";
+}
+function captureEditorSelection(forceEmpty=false){
+ const e=$("#editor"); if(!e)return;
+ const text=e.value.slice(e.selectionStart,e.selectionEnd);
+ // Preserve the last meaningful target when focus/caret merely moves.
+ if(text || forceEmpty){
+   lastEditorSelection={start:e.selectionStart,end:e.selectionEnd,text};
+   updateAISelectionDisplay();
+ }
+}
+function selectedEditorText(){return lastEditorSelection.text||""}
+let aiMessages=[];
+function renderAI(){
+ const tab=$("#aiTab");
+ tab.innerHTML=`<div class="ai-chat">
+   <div id="aiLog" class="ai-log"></div>
+   <div class="ai-compose">
+     <textarea id="aiPrompt" placeholder="Ask about the scene, manuscript, character, structure…"></textarea>
+<div style="font-size:9px;color:var(--muted);margin-top:4px">Return = new line · ⌘Return / Ctrl-Return = send</div>
+     <div class="ai-row">
+       <select id="aiScope"><option value="selection">Selected text</option><option value="scene">Current scene</option><option value="chapter">Current chapter</option><option value="manuscript">Whole manuscript</option><option value="none">No manuscript context</option></select>
+       <select id="aiModel"><option>Loading models…</option></select>
+       <button id="aiSend" class="ai-send" title="Send — ⌘↵ / Ctrl↵">Send <span style="opacity:.72;font-size:9px">⌘↵</span></button>
+     </div>
+     <div class="ai-row"><label style="font-size:10px;color:var(--muted)"><input id="aiWeb" type="checkbox"> Web search</label><span class="spacer"></span><button id="aiCopy" class="btn" style="font-size:10px">Copy reply</button><button id="aiReplace" class="btn" style="font-size:10px">Replace selection</button><button id="aiClear" class="btn" style="font-size:10px">Clear</button></div>
+     <div id="aiSelectionInfo" class="ai-selection-note"></div><div id="aiSelectionTarget"></div><div id="aiStatus" class="ai-status">Checking local Ollama…</div>
+   </div>
+ </div>`;
+ redrawAILog();
+ updateAISelectionDisplay();
+ if(!selectedEditorText())$("#aiScope").value="scene";
+ const savedWeb=localStorage.getItem("mercury_ai_web")==="true";
+ $("#aiWeb").checked=savedWeb;
+ $("#aiWeb").onchange=()=>{
+   localStorage.setItem("mercury_ai_web",String($("#aiWeb").checked));
+   const status=$("#aiStatus");
+   if(status && !$("#aiSend").disabled) status.textContent=$("#aiWeb").checked?"Ollama connected · Web search enabled":"Ollama connected";
+ };
+ $("#aiSend").onclick=sendAI;
+ $("#aiPrompt").onkeydown=e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){e.preventDefault();sendAI()}};
+ $("#aiClear").onclick=()=>{aiMessages=[];redrawAILog()};
+ $("#aiCopy").onclick=async()=>{
+   const last=[...aiMessages].reverse().find(m=>m.role==="assistant");
+   if(!last){toast("No AI reply yet");return}
+   await navigator.clipboard.writeText(last.content);toast("AI reply copied");
+ };
+ $("#aiReplace").onclick=()=>{
+   const last=[...aiMessages].reverse().find(m=>m.role==="assistant");
+   if(!last){toast("No AI reply yet");return}
+   if(!lastEditorSelection.text){toast("Select text in the editor first");return}
+   const e=$("#editor");setView("editor");e.focus();
+   e.setSelectionRange(lastEditorSelection.start,lastEditorSelection.end);
+   // Use the browser's native text-edit command so the replacement becomes
+   // part of the textarea's normal Undo / Redo history.
+   const nativeUndoable=document.execCommand && document.execCommand("insertText",false,last.content);
+   if(!nativeUndoable){
+     e.setRangeText(last.content,lastEditorSelection.start,lastEditorSelection.end,"select");
+   }
+   captureEditorSelection(true);syncFromEditor();toast("Selection replaced — Undo available");
+ };
+ loadOllamaModels();
+}
+function renderAIMarkdown(text){
+ const src=String(text||"").replace(/\r\n?/g,"\n");
+ const codeBlocks=[];
+ let work=src.replace(/```([^\n]*)\n([\s\S]*?)```/g,(_,lang,code)=>{
+   const token=`@@MERCURY_CODE_${codeBlocks.length}@@`;
+   codeBlocks.push(`<pre><code>${escapeHtml(code.replace(/\n$/,""))}</code></pre>`);
+   return `\n${token}\n`;
+ });
+ const lines=work.split("\n"),out=[];let list=null,paras=[];
+ const flushPara=()=>{if(paras.length){out.push(`<p>${renderInlineMarkdown(paras.join(" "))}</p>`);paras=[]}};
+ const closeList=()=>{if(list){out.push(`</${list}>`);list=null}};
+ for(const raw of lines){
+   const line=raw.trim();
+   if(/^@@MERCURY_CODE_\d+@@$/.test(line)){flushPara();closeList();out.push(line);continue}
+   if(!line){flushPara();closeList();continue}
+   const h=line.match(/^(#{1,3})\s+(.+)$/);
+   if(h){flushPara();closeList();out.push(`<h${h[1].length}>${renderInlineMarkdown(h[2])}</h${h[1].length}>`);continue}
+   const bq=line.match(/^>\s?(.*)$/);
+   if(bq){flushPara();closeList();out.push(`<blockquote>${renderInlineMarkdown(bq[1])}</blockquote>`);continue}
+   const ul=line.match(/^[-*]\s+(.+)$/),ol=line.match(/^\d+[.)]\s+(.+)$/);
+   if(ul||ol){
+     flushPara();const want=ul?"ul":"ol";if(list!==want){closeList();list=want;out.push(`<${want}>`)}
+     out.push(`<li>${renderInlineMarkdown((ul||ol)[1])}</li>`);continue
+   }
+   closeList();paras.push(line);
+ }
+ flushPara();closeList();
+ let html=out.join("");
+ codeBlocks.forEach((block,i)=>{html=html.replace(`@@MERCURY_CODE_${i}@@`,block)});
+ return html;
+}
+function redrawAILog(){
+ const log=$("#aiLog"); if(!log)return;
+ log.innerHTML=aiMessages.map(m=>`<div class="ai-msg ${m.role}">${m.role==="assistant"?renderAIMarkdown(m.content):escapeHtml(m.content)}</div>`).join("");
+ log.scrollTop=log.scrollHeight;
+}
+async function loadOllamaModels(){
+ const model=$("#aiModel"), status=$("#aiStatus");
+ try{
+   const r=await fetch("/api/ollama/tags");
+   if(!r.ok) throw new Error(await r.text());
+   const data=await r.json();
+   const names=(data.models||[]).map(x=>x.name);
+   model.innerHTML=names.length?names.map(n=>`<option>${escapeHtml(n)}</option>`).join(""):`<option>qwen3:8b</option>`;
+   const saved=localStorage.getItem("mercury_ai_model");
+   const preferred=(saved&&names.includes(saved)?saved:null)||names.find(n=>n.startsWith("qwen3:8b"))||names.find(n=>n.startsWith("gemma3"))||names[0];
+   if(preferred)model.value=preferred;
+   model.onchange=()=>localStorage.setItem("mercury_ai_model",model.value);
+   status.textContent=$("#aiWeb")?.checked?"Ollama connected · Web search enabled":"Ollama connected";
+ }catch(e){
+   model.innerHTML=`<option>qwen3:8b</option>`;
+   status.textContent="AI requires mercury_server.py (or a CORS-enabled local Ollama endpoint).";
+ }
+}
+function contextForScope(scope){
+ const a=active();
+ const stats=`MERCURY DOCUMENT STATISTICS (exact application counts; do not estimate these):
+Project words: ${projectWords()}
+Current scene words: ${words(a?.scene.text||"")}
+Estimated pages at ${project.wordsPerPage||300} words/page: ${Math.ceil(projectWords()/(project.wordsPerPage||300))}
+Chapters: ${project.chapters.length}
+Scenes: ${project.chapters.reduce((n,c)=>n+c.scenes.length,0)}
+`;
+ if(scope==="none") return stats;
+ if(scope==="selection") return `${stats}\nSELECTED TEXT (${words(selectedEditorText())} words):\n\n${selectedEditorText()||"[No text selected]"}`;
+ if(scope==="scene") return `${stats}\nSCENE: ${a?.scene.title||""}\n\n${a?.scene.text||""}`;
+ if(scope==="chapter") return `${stats}\nCHAPTER: ${a?.chapter.title||""}\n\n`+(a?.chapter.scenes||[]).map(s=>`SCENE: ${s.title}\n${s.text}`).join("\n\n---\n\n");
+ return `${stats}\nMANUSCRIPT: ${project.title}\n\n`+manuscriptText();
+}
+async function sendAI(){
+ const prompt=$("#aiPrompt").value.trim(); if(!prompt)return;
+ const model=$("#aiModel").value, scope=$("#aiScope").value, web=$("#aiWeb").checked;
+ aiMessages.push({role:"user",content:prompt}); $("#aiPrompt").value=""; redrawAILog();
+ $("#aiStatus").textContent=web?"Searching web…":"Thinking locally…"; $("#aiSend").disabled=true;
+ try{
+   const body={model, prompt, context:contextForScope(scope), history:aiMessages.slice(-12), web};
+   const r=await fetch("/api/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+   const data=await r.json();
+   if(!r.ok) throw new Error(data.error||"AI request failed");
+   aiMessages.push({role:"assistant",content:data.content||""}); redrawAILog();
+   $("#aiStatus").textContent=data.web_used?"Ollama connected · Web context used":(web?"Ollama connected · Web search unavailable":"Ollama connected");
+ }catch(e){
+   aiMessages.push({role:"assistant",content:"[Mercury could not reach the local assistant: "+e.message+"]"});redrawAILog();
+   $("#aiStatus").textContent="Connection error";
+ }finally{$("#aiSend").disabled=false}
+}
+
+function updateStatus(){
+ const a=active(), sw=words(a?.scene.text||""), tw=projectWords(), wpp=project.wordsPerPage||300;
+ $("#sceneStats").textContent=`${sw.toLocaleString()} words`;
+ $("#projectStats").textContent=`${tw.toLocaleString()} total`;
+ $("#pageStats").textContent=`~${Math.ceil(tw/wpp)} pages`;
+ const e=$("#editor"), before=e.value.slice(0,e.selectionStart), lines=before.split("\n");
+ $("#cursorStats").textContent=`Ln ${lines.length}, Col ${lines[lines.length-1].length+1}`;
+}
+function scopedChapters(scope=outputScope){
+ const a=active();
+ if(scope==="scene"&&a)return [{...a.chapter,scenes:[a.scene]}];
+ if(scope==="chapter"&&a)return [a.chapter];
+ return project.chapters;
+}
+function stripMercuryAlignment(text){
+ return String(text||"").replace(/^:::\s*(center|right|justify)\s*\n([\s\S]*?)\n:::\s*$/gmi,"$2");
+}
+function manuscriptText(scope=outputScope){
+ return scopedChapters(scope).map(c=>`${c.title.toUpperCase()}\n\n`+c.scenes.map(s=>`${s.title}\n\n${stripMercuryAlignment(s.text.trim())}`).join("\n\n* * *\n\n")).join("\n\n\n");
+}
+function manuscriptMarkdown(scope=outputScope){
+ return `# ${project.title}\n\n${project.author?`*${project.author}*\n\n`:""}`+
+ scopedChapters(scope).map(c=>`## ${c.title}\n\n`+c.scenes.map(s=>`### ${s.title}\n\n${s.text.trim()}`).join("\n\n---\n\n")).join("\n\n");
+}
+function updateSaveScopeNote(){
+ const note=$("#saveScopeNote");if(note)note.textContent=`Portable exports and Print: ${outputScopeLabel()}. Mercury Project always saves the complete editable project.`;
+}
+function slug(s){return (s||"manuscript").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
+async function saveBlobSmart(name,blob,description="Mercury file"){
+ if(window.showSaveFilePicker){
+   try{
+     const ext="."+name.split(".").pop();
+     const handle=await window.showSaveFilePicker({
+       suggestedName:name,
+       types:[{description,accept:{[blob.type||"application/octet-stream"]:[ext]}}]
+     });
+     const writable=await handle.createWritable();
+     await writable.write(blob);await writable.close();
+     toast(`Saved ${name}`);
+     return true;
+   }catch(e){
+     if(e.name==="AbortError")return false;
+   }
+ }
+ const a=document.createElement("a");
+ const url=URL.createObjectURL(blob);a.href=url;a.download=name;
+ document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
+ toast(`Downloaded ${name} to your browser’s download location`);
+ return true;
+}
+async function downloadText(name,text,type="text/plain"){
+ return saveBlobSmart(name,new Blob([text],{type}),"Mercury export");
+}
+async function saveProject(){
+ syncFromEditor();
+ return await downloadText(exportBaseName()+".mercury",JSON.stringify(project,null,2),"application/json");
+}
+
+function exportBaseName(){
+ const input=$("#saveBaseName");
+ let n=(input?.value||slug(project.title)||"manuscript").trim();
+ // Strip a known export extension if the user typed one; button determines format.
+ n=n.replace(/\.(mercury|md|txt|pdf)$/i,"");
+ return n || "manuscript";
+}
+
+function openSaveModal(){
+ syncFromEditor();
+ $("#saveModal").classList.remove("hidden");
+ $("#saveBaseName").value=localStorage.getItem("mercury_export_name")||slug(project.title)||"manuscript";
+ $("#saveBaseName").oninput=()=>localStorage.setItem("mercury_export_name",$("#saveBaseName").value);
+ $("#pdfExportStatus").textContent="";
+ const scopeSel=$("#saveOutputScope");if(scopeSel){scopeSel.value=outputScope;scopeSel.onchange=()=>setOutputScope(scopeSel.value)}
+ updateSaveScopeNote();
+ const canPick=!!window.showSaveFilePicker;
+ $("#saveCapability").innerHTML=canPick
+  ? "<b>Save As is available.</b> Mercury will ask you for a filename and folder."
+  : "<b>This browser does not expose a webpage Save As picker.</b> Manual exports will use the browser’s configured download location. Autosave is separate and never creates download files. On Safari, enable “Ask for each download” in Safari Settings → General if you want a location prompt for every export.";
+}
+async function exportPDF(){
+ syncFromEditor();
+ const status=$("#pdfExportStatus");
+ status.textContent="Creating 6×9 PDF…";
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),30000);
+ try{
+   const html=buildPrintDocument(false);
+   const payload={
+     title:project.title||"Manuscript",author:project.author||"",
+     trimSize:"6x9",wordsPerPage:project.wordsPerPage||300,html,
+     chapters:scopedChapters(outputScope).map(c=>({title:c.title,scenes:c.scenes.map(s=>({title:s.title,text:s.text||""}))}))
+   };
+   const r=await fetch("/api/export/pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
+   if(!r.ok) throw new Error(await r.text()||"PDF export failed");
+   const blob=await r.blob();
+   const ok=await saveBlobSmart(exportBaseName()+".pdf",blob,"PDF manuscript");
+   const renderer=r.headers.get("X-Mercury-PDF-Renderer");
+   status.textContent=ok?(renderer==="fallback"?"PDF saved (basic 6×9 renderer).":"6×9 PDF saved."):"PDF save cancelled.";
+ }catch(e){
+   status.textContent=e.name==="AbortError"?"PDF export timed out. TXT and Markdown export are still available.":"PDF export failed: "+e.message;
+ }finally{clearTimeout(timer)}
+}
+
+function requestOpen(){
+ const ok=confirm(
+   "Open another manuscript?\n\n"+
+   "If the selected file opens successfully, Mercury will keep your current manuscript "+
+   "as the recoverable Previous Project snapshot. You can restore it from Project → Recovery.\n\n"+
+   "For a permanent disk copy, use Save / Export first.\n\nContinue?"
+ );
+ if(!ok)return;
+ const picker=$("#fileOpen");
+ picker.value=""; // allow choosing the same file again
+ picker.click();
+}
+
+function openFile(file){
+ const r=new FileReader();
+ r.onerror=()=>alert("Mercury could not read that file from disk.");
+ r.onload=()=>{
+  let incoming=null;
+  try{
+   const name=(file.name||"").toLowerCase();
+   const text=String(r.result||"");
+   const isMd=/\.md(?:[-_. ()]*\d+[)]?)?$/.test(name);
+   const isTxt=/\.txt(?:[-_. ()]*\d+[)]?)?$/.test(name);
+   const looksMercury=/\.mercury(?:[-_. ()]*\d+[)]?)?$/.test(name) || name.includes(".mercury") || name.endsWith(".json");
+
+   if(isMd||isTxt){
+    incoming=clone(sample);
+    incoming.title=file.name.replace(/\.(md|txt)(?:[-_. ()]*\d+[)]?)?$/i,"");
+    incoming.chapters=[{
+      id:uid(),title:"Imported Manuscript",notes:"",
+      scenes:[{id:uid(),title:"Imported Text",target:0,notes:"",text}]
+    }];
+   }else{
+    // Mercury project files are JSON internally. Parse the contents rather than
+    // trusting the filename, which also handles Safari/Chrome duplicate suffixes.
+    const parsed=JSON.parse(text);
+    if(!parsed || !Array.isArray(parsed.chapters))throw new Error("JSON is not a Mercury project");
+    incoming=parsed;
+   }
+  }catch(e){
+   console.error("Mercury open parse error:",e);
+   alert("Mercury could read the file, but its contents were not recognized as a Mercury project, Markdown, or plain text.");
+   return;
+  }
+
+  // Only after the incoming file has been successfully parsed do we touch current state.
+  try{ snapshotCurrentProject(); }
+  catch(e){
+    console.warn("Could not create previous-project snapshot; continuing with open:",e);
+    try{
+      localStorage.setItem(PREVIOUS_STORAGE,JSON.stringify({
+        savedAt:new Date().toISOString(),project:clone(project)
+      }));
+    }catch(_){}
+  }
+
+  project=incoming;
+  activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;
+  localStorage.setItem(STORAGE,JSON.stringify(project));
+  refreshAll();
+  toast(`Opened ${file.name}`);
+ };
+ r.readAsText(file);
+}
+function snapshotCurrentProject(){
+ try{if($("#editor") && active())syncFromEditor()}catch(e){console.warn("Snapshot editor sync skipped:",e)}
+ localStorage.setItem(PREVIOUS_STORAGE,JSON.stringify({
+   savedAt:new Date().toISOString(),
+   project:clone(project)
+ }));
+}
+function previousProjectRecord(){
+ try{return JSON.parse(localStorage.getItem(PREVIOUS_STORAGE)||"null")}catch(e){return null}
+}
+function restorePreviousProject(){
+ const rec=previousProjectRecord();
+ if(!rec?.project){toast("No previous project snapshot");return}
+ const ok=confirm(
+   `Restore previous project “${rec.project.title||"Untitled"}”?\n\n`+
+   "Your current manuscript will become the new Previous Project snapshot, so you can swap back if needed."
+ );
+ if(!ok)return;
+ try{if($("#editor")&&active())syncFromEditor()}catch(e){console.warn("Editor sync before restore skipped:",e)}
+ const current=clone(project);
+ project=rec.project;
+ localStorage.setItem(PREVIOUS_STORAGE,JSON.stringify({savedAt:new Date().toISOString(),project:current}));
+ activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;
+ localStorage.setItem(STORAGE,JSON.stringify(project));
+ refreshAll();setView("editor");$("#editor").focus();
+ toast("Previous project restored");
+}
+
+function newProject(){
+ const ok=confirm(
+   "Create a new manuscript?\n\n"+
+   "Mercury will keep your current manuscript as a recoverable Previous Project snapshot in this browser. "+
+   "For a permanent disk copy, use Save / Export before continuing.\n\nContinue?"
+ );
+ if(!ok)return;
+ try{snapshotCurrentProject()}catch(e){console.warn("Previous-project snapshot failed:",e)}
+ project={version:1,title:"Untitled Novel",author:"",targetWords:90000,wordsPerPage:300,
+  created:new Date().toISOString(),modified:new Date().toISOString(),chapters:[{id:uid(),title:"Chapter 1",notes:"",scenes:[{id:uid(),title:"Scene 1",target:1500,notes:"",text:""}]}]};
+ activeId=project.chapters[0].scenes[0].id;
+ localStorage.setItem(STORAGE,JSON.stringify(project));
+ refreshAll();setView("editor");$("#editor").focus();
+ toast("New manuscript created — previous project recoverable");
+}
+
+function pageDensity(){
+ // 300 wpp is Mercury's neutral 6×9 drafting density.
+ // Capacity is roughly proportional to inverse type area, so use sqrt scaling.
+ const wpp=Math.max(180,Math.min(500,Number(project.wordsPerPage)||300));
+ const scale=Math.sqrt(300/wpp);
+ return {
+   wpp,
+   fontPx:Math.max(9.5,Math.min(14.5,12*scale)),
+   leading:Math.max(1.38,Math.min(1.58,1.5*scale))
+ };
+}
+function applyPageDensity(){
+ const d=pageDensity();
+ document.documentElement.style.setProperty("--bookFontPx",d.fontPx.toFixed(2)+"px");
+ document.documentElement.style.setProperty("--bookLeading",d.leading.toFixed(3));
+ const mp=$("#measurePage");
+ if(mp){
+   mp.style.fontSize=d.fontPx.toFixed(2)+"px";
+   mp.style.lineHeight=String(d.leading);
+ }
+ return d;
+}
+
+function paginateText(text,wpp){
+ const rawParas=text.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+ if(!rawParas.length) return [[]];
+
+ const measure=$("#measureContent");
+ const pageEl=$("#measurePage");
+ // Measure with the same density-driven typography Book View renders.
+ const density=applyPageDensity();
+ pageEl.style.fontSize=density.fontPx.toFixed(2)+"px";
+ pageEl.style.lineHeight=String(density.leading);
+ measure.innerHTML="";
+ const pages=[];
+ let current=[];
+
+ function fits(testParas){
+   measure.innerHTML="";
+   testParas.forEach((p,i)=>{
+     const el=document.createElement("p");
+     const md=renderMarkdownBlock(p);
+     if(md.cls)el.className=md.cls;
+     el.innerHTML=md.html.replace(/\n/g,"<br>");
+     if(i===0) el.style.textIndent="0";
+     measure.appendChild(el);
+   });
+   return measure.scrollHeight <= measure.clientHeight + 0.5;
+ }
+
+ function splitParagraphToFit(paragraph, existing){
+   const block=unwrapAlignmentBlock(paragraph);
+   const wordsArr=block.body.split(/\s+/).filter(Boolean);
+   let lo=1, hi=wordsArr.length, best=0;
+   while(lo<=hi){
+     const mid=Math.floor((lo+hi)/2);
+     const candidate=wrapAlignmentBlock(wordsArr.slice(0,mid).join(" "),block.align);
+     if(fits([...existing,candidate])){best=mid;lo=mid+1}else hi=mid-1;
+   }
+   return best;
+ }
+
+ for(const para of rawParas){
+   if(fits([...current,para])){
+     current.push(para);
+     continue;
+   }
+   if(current.length){
+     pages.push(current);
+     current=[];
+   }
+   if(fits([para])){
+     current=[para];
+     continue;
+   }
+   // Paragraph itself exceeds a page: split by rendered height, not word count.
+   const longBlock=unwrapAlignmentBlock(para);
+   let remaining=longBlock.body.trim();
+   while(remaining){
+     const arr=remaining.split(/\s+/).filter(Boolean);
+     const wrappedRemaining=wrapAlignmentBlock(remaining,longBlock.align);
+     const take=splitParagraphToFit(wrappedRemaining, []);
+     const n=Math.max(1,take);
+     const piece=arr.slice(0,n).join(" ");
+     pages.push([wrapAlignmentBlock(piece,longBlock.align)]);
+     remaining=arr.slice(n).join(" ");
+   }
+ }
+ if(current.length) pages.push(current);
+ return pages.length?pages:[[]];
+}
+function scenePages(scene){
+ const title=scene.title||"";
+ const basePages=paginateText(scene.text||"", project.wordsPerPage||300);
+ // Reflow first page with title consuming vertical room.
+ if(!title || !basePages.length) return basePages.map((pars,i)=>({title:i===0?title:"",pars}));
+
+ const measure=$("#measureContent");
+ function fitsWithTitle(pars){
+   measure.innerHTML="";
+   const h=document.createElement("div");
+   h.style.cssText="text-align:center;margin:10px 0 24px;font-size:11px;letter-spacing:.12em;text-transform:uppercase";
+   h.textContent=title; measure.appendChild(h);
+   pars.forEach((p,i)=>{
+     const el=document.createElement("p");
+     const md=renderMarkdownBlock(p);
+     if(md.cls)el.className=md.cls;
+     el.innerHTML=md.html.replace(/\n/g,"<br>");
+     if(i===0)el.style.textIndent="0";
+     measure.appendChild(el)
+   });
+   return measure.scrollHeight <= measure.clientHeight + 0.5;
+ }
+ const allParas=(scene.text||"").split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+ if(!allParas.length) return [{title,pars:[]}];
+
+ const result=[]; let first=[]; let idx=0;
+ while(idx<allParas.length && fitsWithTitle([...first,allParas[idx]])){first.push(allParas[idx]);idx++}
+ if(!first.length){
+   // Very long first paragraph; fit wordwise beneath title.
+   const block=unwrapAlignmentBlock(allParas[0]);
+   const arr=block.body.split(/\s+/).filter(Boolean);let lo=1,hi=arr.length,best=1;
+   while(lo<=hi){const mid=Math.floor((lo+hi)/2);if(fitsWithTitle([wrapAlignmentBlock(arr.slice(0,mid).join(" "),block.align)])){best=mid;lo=mid+1}else hi=mid-1}
+   first=[wrapAlignmentBlock(arr.slice(0,best).join(" "),block.align)];
+   allParas[0]=wrapAlignmentBlock(arr.slice(best).join(" "),block.align);
+   if(!arr.slice(best).length){allParas[0]="";idx=1}
+ }
+ result.push({title,pars:first});
+ const remainder=[];
+ if(idx<allParas.length) remainder.push(...allParas.slice(idx));
+ const restText=remainder.join("\n\n");
+ if(restText.trim()){
+   paginateText(restText, project.wordsPerPage||300).forEach(pars=>result.push({title:"",pars}));
+ }
+ return result;
+}
+function renderPages(){
+ applyPageDensity();
+ renderedPages=[{n:null,titlePage:true,bookTitle:project.title||"Untitled",bookAuthor:project.author||""}]; let n=1;
+ scopedChapters(outputScope).forEach(c=>c.scenes.forEach(s=>{
+   if(!s.text.trim())return;
+   scenePages(s).forEach(pg=>renderedPages.push({n:n++,title:pg.title,pars:pg.pars,sceneId:s.id}));
+ }));
+ currentBookPage=Math.max(0,Math.min(currentBookPage,renderedPages.length-1));
+ showBookPage();
+}
+function showBookPage(){
+ const p=$("#pages"); p.innerHTML="";
+ const data=renderedPages[currentBookPage]||{n:1,title:"",pars:[""]};
+ const el=document.createElement("section");el.className="page";
+ if(data.titlePage){
+   el.innerHTML=`<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding-bottom:12%"><div style="font-size:28px;line-height:1.15;font-weight:600;max-width:90%">${escapeHtml(data.bookTitle)}</div>${data.bookAuthor?`<div style="font-size:14px;margin-top:22px">${escapeHtml(data.bookAuthor)}</div>`:""}</div>`;
+ }else{
+   if(data.title) el.innerHTML += `<div style="text-align:center;margin:10px 0 24px;font-size:11px;letter-spacing:.12em;text-transform:uppercase">${escapeHtml(data.title)}</div>`;
+   data.pars.forEach((x,i)=>{
+     const md=renderMarkdownBlock(x);
+     const cls=md.cls?` class="${md.cls}"`:"";
+     el.innerHTML+=`<p${cls}${i===0?' style="text-indent:0"':''}>${md.html.replace(/\n/g,"<br>")}</p>`;
+   });
+   el.innerHTML+=`<div class="folio">${data.n}</div>`;
+ }
+ p.appendChild(el);
+ $("#pageCounter").textContent=`Page ${currentBookPage+1} of ${renderedPages.length}`;
+ $("#prevPage").disabled=currentBookPage<=0; $("#nextPage").disabled=currentBookPage>=renderedPages.length-1;
+}
+function stepBookPage(delta){currentBookPage=Math.max(0,Math.min(renderedPages.length-1,currentBookPage+delta));showBookPage()}
+
+function printTypography(){
+ const d=pageDensity();
+ // CSS px at 96dpi -> points at 72dpi.
+ return {fontPt:(d.fontPx*.75).toFixed(2),leading:d.leading.toFixed(3)};
+}
+function printPagesData(){
+ const pages=[]; let n=1;
+ scopedChapters(outputScope).forEach(c=>c.scenes.forEach(s=>{
+   scenePages(s).forEach(pg=>pages.push({n:n++,title:pg.title,pars:pg.pars}));
+ }));
+ return pages.length?pages:[{n:1,title:"",pars:[""]}];
+}
+function buildPrintDocument(autoPrint=true){
+ renderPages();
+ const pages=printPagesData(), type=printTypography();
+ const titleSheet=`<section class="sheet title-sheet"><div class="book-title">${escapeHtml(project.title||"Untitled")}</div>${project.author?`<div class="book-author">${escapeHtml(project.author)}</div>`:""}</section>`;
+ const body=titleSheet+pages.map(data=>{
+   const title=data.title?`<div class="scene-title">${escapeHtml(data.title)}</div>`:"";
+   const paras=data.pars.map((x,i)=>{
+     const md=renderMarkdownBlock(x);
+     const cls=(i===0?"first ":"")+(md.cls||"");
+     return `<p class="${cls.trim()}">${md.html.replace(/\n/g,"<br>")}</p>`;
+   }).join("");
+   return `<section class="sheet">${title}${paras}<div class="folio">${data.n}</div></section>`;
+ }).join("");
+ return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(project.title||"Manuscript")} — Print</title>
+ <style>
+ @page{size:6in 9in;margin:0}
+ *{box-sizing:border-box}
+ html,body{margin:0!important;padding:0!important;background:white;color:#1d1b18}
+ body{font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif}
+ .notice{font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#26231f;color:#eee6da;padding:10px 14px;position:sticky;top:0;z-index:5}
+ .sheet{width:6in;height:9in;margin:0;padding:.72in .68in .62in;position:relative;overflow:hidden;background:white;font-size:${type.fontPt}pt;line-height:${type.leading};break-after:page}
+ .sheet:last-child{break-after:auto}
+ p{margin:0 0 .75em;text-indent:1.2em}.first{text-indent:0}
+ strong{font-weight:700}em{font-style:italic}
+ .md-h1,.md-h2,.md-h3{font-weight:700;text-indent:0}
+ .align-center{text-align:center!important;text-indent:0!important}.align-right{text-align:right!important;text-indent:0!important}.align-justify{text-align:justify!important;text-indent:0!important}
+ .md-h1{font-size:1.28em;margin:1.15em 0 .65em}.md-h2{font-size:1.14em;margin:1em 0 .55em}.md-h3{font-size:1.04em;margin:.9em 0 .5em}
+ .scene-title{text-align:center;margin:.05in 0 .24in;font-size:.82em;letter-spacing:.12em;text-transform:uppercase}
+ .title-sheet{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding-bottom:1.05in}
+ .book-title{font-size:22pt;line-height:1.15;font-weight:700;max-width:90%}
+ .book-author{font-size:11pt;margin-top:.24in}
+ .folio{position:absolute;left:0;right:0;bottom:.22in;text-align:center;font-size:.72em;color:#777}
+ @media screen{body{background:#d6d3ce;padding:18px 0 30px!important}.sheet{margin:18px auto;box-shadow:0 5px 22px #999}}
+ @media print{html,body{width:6in!important}.notice{display:none!important}.sheet{margin:0!important;box-shadow:none!important}}
+ </style></head><body>
+ ${autoPrint?`<div class="notice">Mercury Print — ${escapeHtml(outputScopeLabel())}. Browser print dialogs may impose their own paper size. For a guaranteed true 6×9 PDF, use Save / Export → PDF.</div>`:""}
+ ${body}
+ ${autoPrint?`<script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script>`:""}
+ </body></html>`;
+}
+function openPrintWindow(){
+ const win=window.open("","_blank","width=820,height=900");
+ if(!win){alert("Please allow pop-ups for Mercury Writer so Print can open the print document.");return}
+ win.document.open();win.document.write(buildPrintDocument(true));win.document.close();
+}
+function setEditorZoom(delta){
+ editorZoom=Math.max(.7,Math.min(1.6,Math.round((editorZoom+delta)*10)/10));
+ document.documentElement.style.setProperty("--editorZoom",editorZoom);
+ localStorage.setItem("mercury_editor_zoom",editorZoom);
+ refreshZoomLabels();
+}
+function setBookZoom(delta){
+ bookZoom=Math.max(.7,Math.min(1.6,Math.round((bookZoom+delta)*10)/10));
+ document.documentElement.style.setProperty("--bookZoom",bookZoom);
+ localStorage.setItem("mercury_book_zoom",bookZoom);
+ refreshZoomLabels();
+}
+function setZoom(delta){
+ if(currentView==="pages")setBookZoom(delta);else setEditorZoom(delta);
+}
+function applyZooms(){
+ document.documentElement.style.setProperty("--editorZoom",editorZoom);
+ document.documentElement.style.setProperty("--bookZoom",bookZoom);
+}
+function refreshZoomLabels(){
+ const current=currentView==="pages"?bookZoom:editorZoom;
+ const top=$("#zoomLabel"), book=$("#bookZoomLabel");
+ if(top)top.textContent=`${Math.round(current*100)}%`;
+ if(book)book.textContent=`${Math.round(bookZoom*100)}%`;
+}
+function setView(v){
+ currentView=v;
+ const isPages=v==="pages";
+ $("#editor").classList.toggle("hidden",isPages);$("#bookStage").classList.toggle("hidden",!isPages);
+ $("#viewEditor").classList.toggle("active",!isPages);$("#viewPages").classList.toggle("active",isPages);
+ if(isPages){syncFromEditor();renderPages();}
+ refreshZoomLabels();
+}
+function toggleFocus(force){
+ focusMode=typeof force==="boolean"?force:!focusMode;
+ $(".sidebar").classList.toggle("hidden",focusMode);$(".inspector").classList.toggle("hidden",focusMode);$(".dochead").classList.toggle("hidden",focusMode);
+ $(".workspace").style.gridTemplateColumns=focusMode?"1fr":"";
+ $("#focusBtn").classList.toggle("active",focusMode);
+ if(!focusMode)$(".workspace").style.gridTemplateColumns="";
+}
+let findCursor=-1;
+let findCursorTerm="";
+function allFindHits(){
+ const term=$("#findInput").value;
+ const txt=$("#editor").value;
+ if(!term) return [];
+ const q=term.toLocaleLowerCase(), hay=txt.toLocaleLowerCase();
+ const hits=[]; let pos=0;
+ while((pos=hay.indexOf(q,pos))!==-1){hits.push(pos);pos+=Math.max(1,q.length)}
+ return hits;
+}
+function updateFindCount(){
+ const term=$("#findInput").value;
+ const hits=allFindHits();
+ findCursor=-1;
+ findCursorTerm=term;
+ $("#findCount").textContent=hits.length?`0 / ${hits.length}`:"0 / 0";
+ $("#findCount").classList.toggle("found",hits.length>0);
+ return hits;
+}
+function revealSelection(pos,len){
+ const e=$("#editor");
+ try{
+   if(currentView!=="editor") setView("editor");
+   e.setSelectionRange(pos,pos+len,"forward");
+   const before=e.value.slice(0,pos);
+   const line=before.split("\n").length-1;
+   const totalLines=Math.max(1,e.value.split("\n").length);
+   const maxScroll=Math.max(0,e.scrollHeight-e.clientHeight);
+   const target=(line/totalLines)*e.scrollHeight-e.clientHeight*.42;
+   e.scrollTop=Math.max(0,Math.min(maxScroll,target));
+   // Plain focus() is intentionally used for widest desktop/iOS compatibility.
+   e.focus();
+   e.setSelectionRange(pos,pos+len,"forward");
+   updateStatus();
+ }catch(err){
+   console.warn("Mercury Find could not reveal selection:",err);
+ }
+}
+function findNext(dir=1){
+ const term=$("#findInput").value;
+ const hits=allFindHits();
+ if(!term||!hits.length){updateFindCount();return}
+ if(term!==findCursorTerm){findCursor=-1;findCursorTerm=term}
+ if(dir>0) findCursor=(findCursor+1)%hits.length;
+ else findCursor=findCursor<0?hits.length-1:(findCursor-1+hits.length)%hits.length;
+ // Navigation succeeds before any browser-dependent focus/selection work.
+ $("#findCount").textContent=`${findCursor+1} / ${hits.length}`;
+ $("#findCount").classList.add("found");
+ revealSelection(hits[findCursor],term.length);
+}
+function refreshAll(){
+ if(!findScene(activeId))activeId=project.chapters[0]?.scenes[0]?.id||null;
+ const a=active();
+ $("#editor").value=a?.scene.text||"";$("#titleInput").value=a?.scene.title||"";$("#sceneTarget").value=a?.scene.target||0;
+ renderTree();renderStats();renderNotes();renderProject();updateStatus();renderPages();
+ const tt=$("#touchSceneTitle");if(tt)tt.textContent=a?.scene.title||"Untitled Scene";
+}
+
+$("#editor").addEventListener("input",syncFromEditor);
+$("#editor").addEventListener("mouseup",()=>{captureEditorSelection();updateStatus()});
+$("#editor").addEventListener("keyup",()=>{captureEditorSelection();updateStatus()});
+$("#editor").addEventListener("select",captureEditorSelection);
+document.addEventListener("selectionchange",()=>{if(document.activeElement===$("#editor"))captureEditorSelection()});
+$("#titleInput").addEventListener("input",syncFromEditor);$("#sceneTarget").addEventListener("input",syncFromEditor);
+$("#addChapter").onclick=addChapter;
+$("#viewEditor").onclick=()=>setView("editor");$("#viewPages").onclick=()=>setView("pages");$("#focusBtn").onclick=()=>toggleFocus();
+$("#fileOpen").onchange=e=>{
+ const file=e.target.files[0];
+ if(file)openFile(file);
+ e.target.value="";
+};
+$("#prevPage").onclick=()=>stepBookPage(-1);$("#nextPage").onclick=()=>stepBookPage(1);$("#bookZoomOut").onclick=()=>setBookZoom(-.1);$("#bookZoomIn").onclick=()=>setBookZoom(.1);$("#zoomOut").onclick=()=>setZoom(-.1);$("#zoomIn").onclick=()=>setZoom(.1);
+$("#closeHelp").onclick=()=>$("#helpModal").classList.add("hidden");
+$("#closeSave").onclick=()=>$("#saveModal").classList.add("hidden");
+$("#saveMercury").onclick=async()=>{if(await saveProject())$("#saveModal").classList.add("hidden")};
+$("#saveTxt").onclick=async()=>{if(await downloadText(exportBaseName()+".txt",manuscriptText(outputScope)))$("#saveModal").classList.add("hidden")};
+$("#saveMd").onclick=async()=>{if(await downloadText(exportBaseName()+".md",manuscriptMarkdown(outputScope),"text/markdown"))$("#saveModal").classList.add("hidden")};
+$("#savePdf").onclick=exportPDF;
+document.querySelectorAll(".side-tab").forEach(t=>t.onclick=()=>{
+ document.querySelectorAll(".side-tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");
+ ["stats","notes","project","ai"].forEach(n=>$("#"+n+"Tab").classList.toggle("hidden",t.dataset.tab!==n));
+ if(t.dataset.tab==="project")renderProject();if(t.dataset.tab==="notes")renderNotes();if(t.dataset.tab==="ai")renderAI();
+});
+document.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>{
+ const a=b.dataset.action;
+ if(a==="new")newProject();
+ if(a==="open")requestOpen();
+ if(a==="save")openSaveModal();
+ if(a==="undo"){document.execCommand("undo");syncFromEditor()}
+ if(a==="redo"){document.execCommand("redo");syncFromEditor()}
+ if(a==="find"){$("#findbar").classList.remove("hidden");$("#findInput").focus()}
+ if(a==="themeEditor")openThemeEditor();
+ if(a==="print"){
+   syncFromEditor();
+   openPrintWindow();
+ }
+});
+document.addEventListener("keydown",e=>{
+ const mod=e.metaKey||e.ctrlKey;
+ if(mod&&e.key.toLowerCase()==="s"){e.preventDefault();openSaveModal()}
+ if(mod&&e.key.toLowerCase()==="o"){e.preventDefault();requestOpen()}
+ if(mod&&e.key.toLowerCase()==="f"&&!e.shiftKey){e.preventDefault();$("#findbar").classList.remove("hidden");$("#findInput").focus()}
+ if(mod&&e.key.toLowerCase()==="p"){e.preventDefault();document.querySelector('[data-action="print"]').click()}
+ if(mod&&e.key.toLowerCase()==="b"){e.preventDefault();replaceEditorSelection("**","**")}
+ if(mod&&e.key.toLowerCase()==="i"){e.preventDefault();replaceEditorSelection("*","*")}
+ if(mod&&e.shiftKey&&e.key.toLowerCase()==="f"){e.preventDefault();toggleFocus()}
+ if(mod&&e.shiftKey&&e.key.toLowerCase()==="n"){e.preventDefault();addScene(active()?.chapter.id)}
+ if(currentView==="pages" && e.key==="ArrowRight"){e.preventDefault();stepBookPage(1)}
+ if(currentView==="pages" && e.key==="ArrowLeft"){e.preventDefault();stepBookPage(-1)}
+ if(mod && (e.key==="+"||e.key==="=")){e.preventDefault();setZoom(.1)}
+ if(mod && e.key==="-"){e.preventDefault();setZoom(-.1)}
+ if(e.key==="Escape"){$("#findbar").classList.add("hidden");if(focusMode)toggleFocus(false)}
+});
+
+$("#closeFind").onclick=()=>$("#findbar").classList.add("hidden");
+$("#findNext").onclick=()=>findNext(1);$("#findPrev").onclick=()=>findNext(-1);$("#findInput").oninput=updateFindCount;$("#findInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();findNext(e.shiftKey?-1:1)}};
+
+// --- Mercury 1.1 adaptive / touch interface ---
+function isAdaptive(){return window.matchMedia("(max-width:1099px)").matches}
+function closeTouchPanels(){
+ document.body.classList.remove("drawer-left","drawer-right","mobile-menu-open");
+}
+function openTouchDrawer(which){
+ if(!isAdaptive())return;
+ closeTouchPanels();
+ document.body.classList.add(which==="left"?"drawer-left":"drawer-right");
+}
+function activateSideTab(name){
+ const t=document.querySelector(`.side-tab[data-tab="${name}"]`);
+ if(t)t.click();
+}
+function updateBookFit(){
+ if(!isAdaptive()){
+   document.documentElement.style.setProperty("--book-fit",1);
+   return;
+ }
+ const vv=window.visualViewport;
+ const vw=vv?.width||window.innerWidth;
+ const vh=vv?.height||window.innerHeight;
+ // Leave room for nav arrows/top bar; never enlarge beyond the normal page size.
+ const fit=Math.max(.42,Math.min(1,(vw-92)/420,(vh-126)/630));
+ document.documentElement.style.setProperty("--book-fit",fit.toFixed(3));
+}
+let mercuryViewportBaseline=0,mercuryViewportWidth=0;
+function updateVisualViewport(){
+ const vv=window.visualViewport;
+ const h=Math.round(vv?.height||window.innerHeight);
+ const w=Math.round(vv?.width||window.innerWidth);
+ document.documentElement.style.setProperty("--app-height",`${h}px`);
+ if(Math.abs(w-mercuryViewportWidth)>80){mercuryViewportBaseline=h;mercuryViewportWidth=w}
+ mercuryViewportBaseline=Math.max(mercuryViewportBaseline||h,h);
+ const el=document.activeElement;
+ const editable=el && (el.tagName==="TEXTAREA"||el.tagName==="INPUT"||el.isContentEditable);
+ const keyboard=Boolean(isAdaptive()&&editable&&(mercuryViewportBaseline-h)>120);
+ document.body.classList.toggle("keyboard-open",keyboard);
+ document.body.classList.toggle("keyboard-editor",keyboard&&el===$("#editor"));
+ updateBookFit();
+}
+function mobileCommand(cmd){
+ closeTouchPanels();
+ if(cmd==="new")newProject();
+ else if(cmd==="open")requestOpen();
+ else if(cmd==="save")openSaveModal();
+ else if(cmd==="undo"){document.execCommand("undo");syncFromEditor()}
+ else if(cmd==="redo"){document.execCommand("redo");syncFromEditor()}
+ else if(cmd==="find"){$("#findbar").classList.remove("hidden");$("#findInput").focus()}
+ else if(cmd==="editor")setView("editor");
+ else if(cmd==="pages")setView("pages");
+ else if(cmd==="focus")toggleFocus();
+ else if(cmd==="theme")openThemeEditor();
+ else if(["stats","notes","project"].includes(cmd)){activateSideTab(cmd);openTouchDrawer("right")}
+}
+$("#touchManuscript").onclick=()=>openTouchDrawer("left");
+$("#touchAI").onclick=()=>{activateSideTab("ai");openTouchDrawer("right")};
+$("#touchMenu").onclick=()=>{
+ if(!isAdaptive())return;
+ const open=document.body.classList.contains("mobile-menu-open");
+ closeTouchPanels();if(!open)document.body.classList.add("mobile-menu-open");
+};
+$("#touchScrim").onclick=closeTouchPanels;
+$("#closeManuscriptDrawer").onclick=closeTouchPanels;
+$("#closeInspectorDrawer").onclick=closeTouchPanels;
+document.querySelectorAll("[data-mobile-command]").forEach(b=>b.onclick=()=>mobileCommand(b.dataset.mobileCommand));
+window.addEventListener("resize",()=>{closeTouchPanels();updateVisualViewport()});
+window.addEventListener("orientationchange",()=>setTimeout(updateVisualViewport,80));
+if(window.visualViewport){
+ window.visualViewport.addEventListener("resize",updateVisualViewport);
+ window.visualViewport.addEventListener("scroll",updateVisualViewport);
+}
+document.addEventListener("focusin",()=>setTimeout(updateVisualViewport,30));
+document.addEventListener("focusout",()=>setTimeout(updateVisualViewport,80));
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&isAdaptive())closeTouchPanels()});
+updateVisualViewport();
+// --- end adaptive interface ---
+
+window.addEventListener("beforeunload",()=>{syncFromEditor();localStorage.setItem(STORAGE,JSON.stringify(project))});
+
+function applyTheme(theme){
+ if(!["dark","paper","custom"].includes(theme))theme="dark";
+ if(theme==="custom")installCustomTheme();
+ document.documentElement.dataset.theme=theme;
+ localStorage.setItem("mercury_theme",theme);
+ const btn=$("#themeBtn");
+ if(btn)btn.textContent=theme==="custom"?"Theme · Custom":"Theme";
+}
+
+installCustomTheme();
+$("#themeDark").onclick=()=>{applyTheme("dark");themeEditorValues()};
+$("#themePaper").onclick=()=>{applyTheme("paper");themeEditorValues()};
+$("#themeCustom").onclick=()=>{applyTheme("custom");themeEditorValues()};
+$("#themeClose").onclick=closeThemeEditor;
+$("#themeReset").onclick=()=>{
+ localStorage.removeItem(THEME_CUSTOM_STORAGE);
+ installCustomTheme(CUSTOM_THEME_DEFAULTS);
+ themeEditorValues();
+ applyTheme("custom");
+ toast("Custom theme reset");
+};
+document.querySelectorAll("[data-theme-var]").forEach(input=>{
+ input.oninput=()=>saveCustomColor(input.dataset.themeVar,input.value);
+});
+document.addEventListener("pointerdown",e=>{
+ const pop=$("#themePopover"),btn=$("#themeBtn");
+ if(pop && !pop.classList.contains("hidden") && !pop.contains(e.target) && e.target!==btn)closeThemeEditor();
+});
+document.addEventListener("keydown",e=>{
+ if(e.key==="Escape")closeThemeEditor();
+});
+
+applyTheme(localStorage.getItem("mercury_theme")||"dark");
+applyZooms();refreshAll();setView("editor");
+
+})();
+</script>
+</body>
+</html>
