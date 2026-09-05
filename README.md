@@ -20,13 +20,12 @@ is optional and only used when you turn it on.
 > `pip install`, `npm install`, build process, database, account, or
 > cloud manuscript storage.
 
-```{=html}
-
 ![Mercury Writer editor](screenshots/MercuryWriter_Dark_Editor.png)
+
 ![Mercury Writer Book View](screenshots/MercuryWriter_LightBookview.png)
+
 ![Mercury Writer AI assistant](screenshots/MercuryWriter_Custom_AI.png)
 
-```
 ## What Mercury includes
 
 -   Chapter and scene manuscript tree with collapsible chapters
