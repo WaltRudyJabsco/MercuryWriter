@@ -22,7 +22,7 @@ is optional and only used when you turn it on.
 
 ![Mercury Writer editor](screenshots/MercuryWriter_Dark_Editor.png)
 
-![Mercury Writer Book View](screenshots/MercuryWriter_Light_Bookview.png)
+![Mercury Writer Book View](screenshots/MercuryWriter_LIght_Bookview.png)
 
 ![Mercury Writer AI assistant](screenshots/MercuryWriter_Custom_AI.png)
 
