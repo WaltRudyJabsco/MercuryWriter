@@ -294,6 +294,8 @@ So **Chrome is optional**, not a Mercury dependency.
 
 # Bonus: Put Mercury on your iPhone or iPad with Tailscale
 
+![Mercury Writer editor](screenshots/MercuryWriter_iOS_Tailscale.png)
+
 One of Mercury's nicest tricks is that the computer running the local AI
 does not have to be the computer you are writing on.
 
