@@ -783,35 +783,12 @@ dependencies.
 
 ------------------------------------------------------------------------
 
-# Suggested repository layout
-
-``` text
-Mercury-Writer/
-├── Mercury_Writer_1_2_7.html
-├── mercury_server.py
-├── README.md
-├── LICENSE
-└── screenshots/
-    ├── editor.png
-    ├── book-view.png
-    └── ai.png
-```
-
-For a public GitHub release, you may also want to provide a ZIP
-containing the HTML, `mercury_server.py`, and a plain-text copy of this
-README.
-
-------------------------------------------------------------------------
-
 # Notes for other platforms
 
 Mercury's application code is not inherently macOS-specific: it is HTML
 plus a Python standard-library server, and Ollama supports additional
 platforms. The setup commands above are intentionally focused on macOS
 because that is the currently tested installation path for this project.
-
-If you add Windows or Linux installation instructions, test those launch
-paths before describing them as supported.
 
 ------------------------------------------------------------------------
 
