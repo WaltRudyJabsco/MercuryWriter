@@ -77,6 +77,10 @@ user.
 
 ### Easiest: download it from GitHub
 
+Download Mercury Writer: Open the latest Release and download Mercury-Writer-1.2.7.zip. Unzip it somewhere convenient and follow the setup instructions below.
+
+-or-
+
 Click the green **Code** button at the top of this GitHub page, then choose **Download ZIP**.
 
 Open the downloaded ZIP and move the `Mercury-Writer` folder somewhere convenient, such as your Documents folder.
