@@ -22,9 +22,9 @@ is optional and only used when you turn it on.
 
 ```{=html}
 
-[Mercury Writer editor](screenshots/MercuryWriter_Dark_Editor.png)
-[Mercury Writer Book View](screenshots/MercuryWriter_LightBookview.png)
-[Mercury Writer AI assistant](screenshots/MercuryWriter_Custom_AI.png)
+![Mercury Writer editor](screenshots/MercuryWriter_Dark_Editor.png)
+![Mercury Writer Book View](screenshots/MercuryWriter_LightBookview.png)
+![Mercury Writer AI assistant](screenshots/MercuryWriter_Custom_AI.png)
 
 ```
 ## What Mercury includes
