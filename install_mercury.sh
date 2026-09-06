@@ -99,19 +99,47 @@ case "$MODEL_CHOICE" in
 esac
 
 say "Optional Web Search"
-if ask_yes_no "Configure an Ollama API key for Mercury Web Search now?" "N"; then
+
+echo "Mercury's local AI does not require an online account."
+echo
+echo "If you want Mercury's AI assistant to search the web for"
+echo "current information, Web Search requires an Ollama API key."
+echo
+echo "If you created an Ollama account and prepared an API key"
+echo "before installation, choose Y and paste the key now."
+echo
+echo "If you do not have an API key, choose N."
+echo "You can add one later."
+echo
+
+if ask_yes_no "Configure Mercury Web Search now?" "N"; then
   read -r -s -p "Paste your Ollama API key: " OLLAMA_KEY
   echo
+
   if [[ -n "$OLLAMA_KEY" ]]; then
     ZSHRC="$HOME/.zshrc"
     touch "$ZSHRC"
+
     TMPFILE="$(mktemp)"
     grep -v '^[[:space:]]*export[[:space:]]\+OLLAMA_API_KEY=' "$ZSHRC" > "$TMPFILE" || true
     cat "$TMPFILE" > "$ZSHRC"
     rm -f "$TMPFILE"
+
     printf '\nexport OLLAMA_API_KEY=%q\n' "$OLLAMA_KEY" >> "$ZSHRC"
-    echo "Ollama API key added to ~/.zshrc."
+
+    echo
+    echo "Web Search configured."
+    echo "Your Ollama API key has been saved to ~/.zshrc."
+    echo "Mercury will load it automatically when you launch the app."
+  else
+    echo
+    echo "No API key was entered. Skipping Web Search setup."
+    echo "You can configure it later."
   fi
+else
+  echo
+  echo "Skipping Web Search setup."
+  echo "Mercury and its local AI will still work normally."
 fi
 
 say "Creating launcher"
