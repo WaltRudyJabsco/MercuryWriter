@@ -93,7 +93,7 @@ The installer can:
 - install Python 3 and Ollama if needed
 - start Ollama
 - offer Qwen3 4B, Qwen3 8B, or both
-- optionally add an Ollama Web Search API key to your shell environment
+- optionally store an Ollama Web Search API key in the protected ~/.zsh_secrets file
 - create a double-clickable Launch Mercury.command
 
 After installation, Mercury can be launched by opening:
@@ -244,27 +244,29 @@ Optional: Web Search for the AI assistant
 
 Mercury's AI is local by default. Checking Web search lets the local model receive current search results through Ollama's Web Search API.
 
-This requires an Ollama API key. Create a key in your Ollama account, then add it to your shell environment.
-
-For the default macOS zsh shell:
+This requires an Ollama API key. Create a key in your Ollama account, then store it in Mercury's protected secrets file.
 
 bash
-echo 'export OLLAMA_API_KEY="PASTE_YOUR_OLLAMA_API_KEY_HERE"' >> ~/.zshrc
-source ~/.zshrc
+touch ~/.zsh_secrets
+chmod 600 ~/.zsh_secrets
+printf '\nexport OLLAMA_API_KEY=%q\n' "PASTE_YOUR_OLLAMA_API_KEY_HERE" >> ~/.zsh_secrets
 
 
 Replace the placeholder with your actual key.
 
-Confirm that the variable exists without printing the secret itself:
+Confirm that the file is protected:
 
 bash
-if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
+ls -l ~/.zsh_secrets
 
 
-Then restart Mercury:
+Its permissions should begin with:
 
-bash
-python3 mercury_server.py
+text
+-rw-------
+
+
+Mercury's Launch Mercury.command loads the API key from this file without sourcing your entire .zshrc. Then restart Mercury.
 
 
 The Web search checkbox remembers your preference in that browser. When it is off, the AI request stays local between Mercury and your local Ollama service.
@@ -632,19 +634,19 @@ Then reload the AI panel or Mercury.
 
 Web Search does not work
 
-Confirm that the API key is available to the shell that launches Mercury:
+Confirm that Mercury's protected secrets file contains the API-key export without printing the secret:
 
 bash
-if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
+grep -q '^[[:space:]]*export[[:space:]]\+OLLAMA_API_KEY=' ~/.zsh_secrets && echo "Ollama API key is configured" || echo "Ollama API key is not configured"
 
 
-If you just edited ~/.zshrc, either run:
+Confirm its permissions:
 
 bash
-source ~/.zshrc
+ls -l ~/.zsh_secrets
 
 
-or open a new Terminal window before launching Mercury again.
+The permissions should begin with -rw-------. Then quit and relaunch Mercury so Launch Mercury.command can load the key.
 
 I want to test the new-user experience
 

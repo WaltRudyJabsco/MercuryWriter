@@ -10,7 +10,7 @@ Usage:
 Then open:
     http://127.0.0.1:8765
 
-If OLLAMA_API_KEY is defined in ~/.zshrc, launch from a shell that has sourced it.
+Mercury's launcher can load OLLAMA_API_KEY from ~/.zsh_secrets; the server itself reads the environment variable.
 """
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.request import Request, urlopen

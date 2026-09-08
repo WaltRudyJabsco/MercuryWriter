@@ -74,7 +74,7 @@ Configure an Ollama API key for Mercury Web Search now? [y/N]
 
 Enter `y`, press Return, and paste the API key when prompted.
 
-The installer will save it to your Mac's shell environment so Mercury can use it in the future. You should not need to enter it each time you launch Mercury.
+The installer saves it in `~/.zsh_secrets`, protects that file with `chmod 600`, and Mercury's launcher loads only the API key from that file. You should not need to enter it each time you launch Mercury.
 
 **If you do not want Web Search, skip this entirely.** Mercury's local writing and AI features still work without an Ollama account or API key.
 
@@ -125,7 +125,7 @@ The installer can:
 - install Python 3 and Ollama if needed
 - start Ollama
 - offer Qwen3 4B, Qwen3 8B, or both
-- optionally add an Ollama Web Search API key to your shell environment
+- optionally store an Ollama Web Search API key in the protected `~/.zsh_secrets` file
 - create a double-clickable `Launch Mercury.command`
 
 After installation, Mercury can be launched by opening:
@@ -276,19 +276,26 @@ Launch Mercury.command
 
 If you supplied an Ollama API key during installation, Web Search is already configured. Check **Web search** in Mercury's AI panel whenever you want the local model to receive current web results.
 
-If you skipped API-key setup during installation and want to add it later, create an API key from your Ollama account and add it to the default macOS `zsh` environment:
+If you skipped API-key setup during installation and want to add it later, create an API key from your Ollama account and store it in Mercury's protected secrets file:
 
 ```bash
-echo 'export OLLAMA_API_KEY="PASTE_YOUR_OLLAMA_API_KEY_HERE"' >> ~/.zshrc
-source ~/.zshrc
+touch ~/.zsh_secrets
+chmod 600 ~/.zsh_secrets
+printf '\nexport OLLAMA_API_KEY=%q\n' "PASTE_YOUR_OLLAMA_API_KEY_HERE" >> ~/.zsh_secrets
 ```
 
-Replace the placeholder with your actual key.
+Replace the placeholder with your actual key. Mercury's `Launch Mercury.command` reads the key from this file without sourcing your entire `.zshrc`.
 
-Confirm that the key is configured without displaying the key itself:
+Confirm the file is protected:
 
 ```bash
-if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
+ls -l ~/.zsh_secrets
+```
+
+Its permissions should begin with:
+
+```text
+-rw-------
 ```
 
 Then restart Mercury.
@@ -658,19 +665,19 @@ Then reload the AI panel or Mercury.
 
 ### Web Search does not work
 
-Confirm that the API key is available to the shell that launches Mercury:
+Confirm that Mercury's protected secrets file contains the API-key export without printing the secret:
 
 ```bash
-if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
+grep -q '^[[:space:]]*export[[:space:]]\+OLLAMA_API_KEY=' ~/.zsh_secrets && echo "Ollama API key is configured" || echo "Ollama API key is not configured"
 ```
 
-If you just edited `~/.zshrc`, either run:
+Confirm its permissions:
 
 ```bash
-source ~/.zshrc
+ls -l ~/.zsh_secrets
 ```
 
-or open a new Terminal window before launching Mercury again.
+The permissions should begin with `-rw-------`. Then quit and relaunch Mercury so `Launch Mercury.command` can load the key.
 
 ### I want to test the new-user experience
 

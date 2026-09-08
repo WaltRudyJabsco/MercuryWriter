@@ -117,19 +117,22 @@ if ask_yes_no "Configure Mercury Web Search now?" "N"; then
   echo
 
   if [[ -n "$OLLAMA_KEY" ]]; then
-    ZSHRC="$HOME/.zshrc"
-    touch "$ZSHRC"
+    SECRETS_FILE="$HOME/.zsh_secrets"
+    touch "$SECRETS_FILE"
+    chmod 600 "$SECRETS_FILE"
 
     TMPFILE="$(mktemp)"
-    grep -v '^[[:space:]]*export[[:space:]]\+OLLAMA_API_KEY=' "$ZSHRC" > "$TMPFILE" || true
-    cat "$TMPFILE" > "$ZSHRC"
+    grep -v '^[[:space:]]*export[[:space:]]\+OLLAMA_API_KEY=' "$SECRETS_FILE" > "$TMPFILE" || true
+    cat "$TMPFILE" > "$SECRETS_FILE"
     rm -f "$TMPFILE"
 
-    printf '\nexport OLLAMA_API_KEY=%q\n' "$OLLAMA_KEY" >> "$ZSHRC"
+    printf '\nexport OLLAMA_API_KEY=%q\n' "$OLLAMA_KEY" >> "$SECRETS_FILE"
+    chmod 600 "$SECRETS_FILE"
 
     echo
     echo "Web Search configured."
-    echo "Your Ollama API key has been saved to ~/.zshrc."
+    echo "Your Ollama API key has been saved to ~/.zsh_secrets."
+    echo "The secrets file is protected with chmod 600."
     echo "Mercury will load it automatically when you launch the app."
   else
     echo
@@ -180,9 +183,10 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Import only the API key. Do not source the user's entire ~/.zshrc.
-if [[ -f "$HOME/.zshrc" ]]; then
-  KEY_LINE="$(grep -E '^[[:space:]]*export[[:space:]]+OLLAMA_API_KEY=' "$HOME/.zshrc" | tail -n 1 || true)"
+# Import only the API key from Mercury's protected secrets file.
+# Do not source the user's entire shell configuration.
+if [[ -f "$HOME/.zsh_secrets" ]]; then
+  KEY_LINE="$(grep -E '^[[:space:]]*export[[:space:]]+OLLAMA_API_KEY=' "$HOME/.zsh_secrets" | tail -n 1 || true)"
   [[ -n "$KEY_LINE" ]] && eval "$KEY_LINE"
 fi
 
