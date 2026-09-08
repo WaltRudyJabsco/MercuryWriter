@@ -23,6 +23,79 @@ PORT=8765
 OLLAMA=os.environ.get("OLLAMA_HOST","http://127.0.0.1:11434").rstrip("/")
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
 ROOT=Path(__file__).resolve().parent
+MEMORY_FILE=ROOT / "mercury_memory.json"
+MEMORY_SLOTS=5
+
+def _project_key(context):
+    """Best-effort project identity from Mercury's supplied context."""
+    text=str(context or "")
+    for pattern in (
+        r"(?im)^\s*PROJECT TITLE\s*:\s*(.+?)\s*$",
+        r"(?im)^\s*PROJECT\s*:\s*(.+?)\s*$",
+        r"(?im)^\s*TITLE\s*:\s*(.+?)\s*$",
+    ):
+        m=re.search(pattern,text)
+        if m: return m.group(1).strip()[:120]
+    return "__default__"
+
+def _load_memory():
+    try:
+        data=json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data,dict) else {}
+    except Exception:
+        return {}
+
+def _save_memory(data):
+    tmp=MEMORY_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+    tmp.replace(MEMORY_FILE)
+
+def _memory_for(data,key):
+    mem=data.get(key,{})
+    if not isinstance(mem,dict): mem={}
+    long_term=str(mem.get("long_term","")).strip()
+    recent=mem.get("recent",[])
+    if not isinstance(recent,list): recent=[]
+    return {"long_term":long_term,"recent":[str(x) for x in recent[-MEMORY_SLOTS:]]}
+
+def _memory_context(mem):
+    parts=[]
+    if mem.get("long_term"):
+        parts.append("LONG-TERM:\n"+mem["long_term"])
+    if mem.get("recent"):
+        parts.append("RECENT:\n"+"\n".join(f"{i+1}. {x}" for i,x in enumerate(mem["recent"])))
+    return "\n\n".join(parts)
+
+def _remember_exchange(mem,prompt,reply,model):
+    """Keep five recent exchanges; fold the oldest into durable memory on overflow."""
+    prompt=" ".join(str(prompt).split())[:500]
+    reply=" ".join(str(reply).split())[:700]
+    if not prompt or not reply: return mem
+    entry=f"Writer: {prompt} | Mercury: {reply}"
+    recent=list(mem.get("recent",[]))
+    recent.append(entry)
+    long_term=str(mem.get("long_term","")).strip()
+    if len(recent)>MEMORY_SLOTS:
+        oldest=recent.pop(0)
+        merge_prompt=(
+            "Maintain a compact long-term memory for a writing project. "
+            "Merge only durable facts, decisions, preferences, continuity details, and unresolved questions. "
+            "Ignore greetings, transient requests, discarded ideas, and routine conversation. "
+            "Correct contradictions in favor of the newer information. Keep it concise.\n\n"
+            f"EXISTING MEMORY:\n{long_term or '[empty]'}\n\nNEW OLDEST NOTE:\n{oldest}"
+        )
+        try:
+            out=post_json(OLLAMA+"/api/chat",{
+                "model":model,
+                "messages":[{"role":"user","content":merge_prompt}],
+                "stream":False
+            },timeout=120)
+            merged=((out.get("message") or {}).get("content") or "").strip()
+            if merged: long_term=merged[:4000]
+        except Exception:
+            # Never break the writing assistant merely because memory compression failed.
+            long_term=(long_term+"\n"+oldest).strip()[-4000:]
+    return {"long_term":long_term,"recent":recent[-MEMORY_SLOTS:]}
 
 def jdump(x): return json.dumps(x).encode("utf-8")
 
@@ -267,6 +340,9 @@ class Handler(SimpleHTTPRequestHandler):
             use_web=bool(body.get("web"))
             web_text=""
             web_used=False
+            memory_data=_load_memory()
+            memory_key=_project_key(context)
+            project_memory=_memory_for(memory_data,memory_key)
 
             if use_web:
                 key=os.environ.get("OLLAMA_API_KEY")
@@ -310,6 +386,9 @@ Be concise when the answer is simple and thorough when the question requires tho
 
 The writer remains the author. Your purpose is to help the writer see the work more clearly, understand what is already on the page, and make better decisions about what comes next."""
             user_content = prompt
+            remembered=_memory_context(project_memory)
+            if remembered:
+                user_content += "\n\n--- PROJECT MEMORY ---\n" + remembered
             if context:
                 user_content += "\n\n--- MANUSCRIPT CONTEXT ---\n" + context
             if web_text:
@@ -324,6 +403,11 @@ The writer remains the author. Your purpose is to help the writer see the work m
 
             out=post_json(OLLAMA+"/api/chat",{"model":model,"messages":messages,"stream":False},timeout=240)
             content=((out.get("message") or {}).get("content") or "").strip()
+            if content:
+                project_memory=_remember_exchange(project_memory,prompt,content,model)
+                memory_data[memory_key]=project_memory
+                try: _save_memory(memory_data)
+                except Exception as e: print("Mercury memory save failed:",e,file=sys.stderr)
             self.send_json({"content":content,"web_used":web_used})
         except HTTPError as e:
             self.send_json({"error":f"HTTP {e.code}: {e.read().decode('utf-8','ignore')}"},502)
