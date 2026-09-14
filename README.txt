@@ -93,7 +93,7 @@ The installer can:
 - install Python 3 and Ollama if needed
 - start Ollama
 - offer Qwen3 4B, Qwen3 8B, or both
-- optionally store an Ollama Web Search API key in the protected ~/.zsh_secrets file
+- optionally add an Ollama Web Search API key to your shell environment
 - create a double-clickable Launch Mercury.command
 
 After installation, Mercury can be launched by opening:
@@ -244,29 +244,27 @@ Optional: Web Search for the AI assistant
 
 Mercury's AI is local by default. Checking Web search lets the local model receive current search results through Ollama's Web Search API.
 
-This requires an Ollama API key. Create a key in your Ollama account, then store it in Mercury's protected secrets file.
+This requires an Ollama API key. Create a key in your Ollama account, then add it to your shell environment.
+
+For the default macOS zsh shell:
 
 bash
-touch ~/.zsh_secrets
-chmod 600 ~/.zsh_secrets
-printf '\nexport OLLAMA_API_KEY=%q\n' "PASTE_YOUR_OLLAMA_API_KEY_HERE" >> ~/.zsh_secrets
+echo 'export OLLAMA_API_KEY="PASTE_YOUR_OLLAMA_API_KEY_HERE"' >> ~/.zshrc
+source ~/.zshrc
 
 
 Replace the placeholder with your actual key.
 
-Confirm that the file is protected:
+Confirm that the variable exists without printing the secret itself:
 
 bash
-ls -l ~/.zsh_secrets
+if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
 
 
-Its permissions should begin with:
+Then restart Mercury:
 
-text
--rw-------
-
-
-Mercury's Launch Mercury.command loads the API key from this file without sourcing your entire .zshrc. Then restart Mercury.
+bash
+python3 mercury_server.py
 
 
 The Web search checkbox remembers your preference in that browser. When it is off, the AI request stays local between Mercury and your local Ollama service.
@@ -634,19 +632,19 @@ Then reload the AI panel or Mercury.
 
 Web Search does not work
 
-Confirm that Mercury's protected secrets file contains the API-key export without printing the secret:
+Confirm that the API key is available to the shell that launches Mercury:
 
 bash
-grep -q '^[[:space:]]*export[[:space:]]\+OLLAMA_API_KEY=' ~/.zsh_secrets && echo "Ollama API key is configured" || echo "Ollama API key is not configured"
+if [[ -n "$OLLAMA_API_KEY" ]]; then echo "Ollama API key is set"; else echo "Ollama API key is not set"; fi
 
 
-Confirm its permissions:
+If you just edited ~/.zshrc, either run:
 
 bash
-ls -l ~/.zsh_secrets
+source ~/.zshrc
 
 
-The permissions should begin with -rw-------. Then quit and relaunch Mercury so Launch Mercury.command can load the key.
+or open a new Terminal window before launching Mercury again.
 
 I want to test the new-user experience
 
@@ -716,3 +714,65 @@ Credits
 Mercury Writer was built around the conviction that a serious writing tool can still be small, understandable, local, and owned by the person doing the writing.
 
 The manuscript is the product. The software should get out of its way.
+
+
+LO-style intelligence layer
+
+Mercury can use multiple Ollama hosts. Put mercury_ai.json beside mercury_server.py to define a preferred host and fallbacks. Mercury probes reachable hosts, discovers models, routes the selected model to a machine that has it, and falls back when needed.
+
+Mercury also keeps five recent useful project memories plus one compressed long-term memory in mercury_memory.json. Routine acknowledgments are ignored.
+
+When Web Search is enabled, Mercury searches only when outside or current information is likely to help. Manuscript-local questions and short conversational replies stay local.
+
+Example mercury_ai.json:
+
+{
+  "preferred_host": "3090",
+  "hosts": [
+    {"name": "3090", "url": "https://YOUR-OLLAMA-HOST.ts.net"},
+    {"name": "Mac", "url": "http://127.0.0.1:11434"}
+  ]
+}
+
+
+Linux support
+
+The installer supports Linux as well as macOS.
+
+Default Linux install location:
+~/.local/share/mercury-writer
+
+Linux launcher:
+~/.local/bin/mercury-writer
+
+Desktop entry:
+~/.local/share/applications/mercury-writer.desktop
+
+Launch with:
+mercury-writer
+
+
+Mercurycast and loose LOOK integration
+
+On Linux the installer creates:
+
+~/.local/bin/mercury-writer
+~/.local/bin/mercurycast
+~/.config/mercury/service.json
+
+Run:
+mercury-writer
+
+to launch Mercury locally.
+
+Run:
+mercurycast
+
+to start Mercury if needed and expose port 8765 privately through Tailscale Serve.
+
+Other commands:
+mercurycast status
+mercurycast local
+mercurycast stop
+
+Mercury does not depend on LOOK/Future Crash. The service.json file is only a loose discovery hook for other local tools.

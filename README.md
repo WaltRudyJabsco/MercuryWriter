@@ -29,10 +29,10 @@ Mercury runs as a self-contained browser application with a tiny Python companio
 - 6 × 9 PDF export with browser-quality rendering when Chrome/Chromium is available and a built-in fallback renderer when it is not
 - Find, Undo/Redo, Focus mode, themes, and keyboard shortcuts
 - Responsive desktop, tablet, and phone layouts
-- Local Ollama AI assistant with selectable installed models
+- Local or remote Ollama AI assistant with automatic host discovery/fallback and selectable installed models
 - AI context controls for selected text, scene, chapter, manuscript, or no manuscript context
 - Replace-selection workflow with normal Undo support
-- Optional Ollama Web Search context
+- Opportunistic Ollama Web Search context plus compact project memory
 - No required cloud account for writing or local AI
 
 ## The architecture
@@ -47,6 +47,52 @@ mercury_server.py           Small local server + Ollama/PDF bridge
 Most of Mercury lives in the single HTML file. The Python server serves that file locally, talks to Ollama, optionally requests Ollama Web Search results, and handles PDF export.
 
 The server uses only Python's standard library. You do **not** need to install Python packages with `pip`.
+
+## LO-style intelligence layer
+
+Mercury can now use more than one Ollama machine. The server probes configured AI hosts, discovers their installed models, routes a request to a host that actually has the selected model, and falls back to another reachable host if necessary.
+
+This is especially useful when Mercury is running on a laptop or being used from an iPad while a faster desktop or GPU server does the inference.
+
+Mercury also keeps a deliberately small project memory: five recent useful memories plus one compressed long-term memory. Routine acknowledgments are not stored. Memory is kept in `mercury_memory.json` beside the server and is supplied invisibly to the writing assistant.
+
+Web Search is opportunistic rather than compulsory. Leaving **Web search** checked means Mercury may search when a question benefits from outside or current information; manuscript-local questions and quick conversational replies stay local.
+
+
+### Loose integration with LOOK / Future Crash
+
+Mercury does not require LOOK or Future Crash. On Linux, the installer publishes a tiny service descriptor at:
+
+```text
+~/.config/mercury/service.json
+```
+
+That file is deliberately boring: service name, local port, launcher, cast command, and status command. LOOK can use it if present, ignore it if not, or discover Mercury through `mercurycast`. Mercury itself remains independently launchable and usable.
+
+
+### Optional remote Ollama configuration
+
+A `mercury_ai.json` file beside `mercury_server.py` defines a preferred AI host and fallbacks:
+
+```json
+{
+  "preferred_host": "3090",
+  "hosts": [
+    {
+      "name": "3090",
+      "url": "https://YOUR-OLLAMA-HOST.ts.net"
+    },
+    {
+      "name": "Mac",
+      "url": "http://127.0.0.1:11434"
+    }
+  ]
+}
+```
+
+Replace the example remote URL with the private Tailscale/HTTPS address that exposes your Ollama service. If the remote machine is unavailable, Mercury retains the local Ollama fallback automatically.
+
+The AI panel stays intentionally simple. Its status line reports which host answered, whether web context was actually used, and the state of project memory.
 
 ---
 
@@ -82,9 +128,9 @@ The installer saves it in `~/.zsh_secrets`, protects that file with `chmod 600`,
 
 ---
 
-# Quick Start — macOS
+# Quick Start — macOS and Linux
 
-These instructions are written for someone who is comfortable copying commands into Terminal but does not otherwise need to be a Terminal user.
+These instructions are written for someone who is comfortable copying commands into a terminal but does not otherwise need to be a terminal user. The installer now supports both macOS and Linux.
 
 ## Get Mercury Writer
 
@@ -103,6 +149,7 @@ The release package should contain:
 ```text
 Mercury_Writer_1_2_7.html
 mercury_server.py
+mercury_ai.json
 install_mercury.sh
 README.txt
 LICENSE
@@ -120,13 +167,13 @@ bash install_mercury.sh
 
 The installer can:
 
-- place Mercury in `~/Applications/Mercury-Writer`
+- place Mercury in `~/Applications/Mercury-Writer` on macOS or `~/.local/share/mercury-writer` on Linux
 - install Homebrew if needed
 - install Python 3 and Ollama if needed
 - start Ollama
 - offer Qwen3 4B, Qwen3 8B, or both
 - optionally store an Ollama Web Search API key in the protected `~/.zsh_secrets` file
-- create a double-clickable `Launch Mercury.command`
+- create a macOS `Launch Mercury.command`, or on Linux create `~/.local/bin/mercury-writer` plus a desktop application entry
 
 After installation, Mercury can be launched by opening:
 
@@ -243,6 +290,46 @@ The downloads are roughly 5.2 GB for Qwen3 8B and 2.5 GB for Qwen3 4B. Actual me
 Mercury is not locked to Qwen. Any compatible local Ollama chat model that appears in Mercury's model menu can be selected.
 
 ## 5. Launch Mercury
+
+
+### Linux launch
+
+On Linux, the installer creates:
+
+```text
+~/.local/share/mercury-writer
+~/.local/bin/mercury-writer
+~/.local/bin/mercurycast
+~/.local/share/applications/mercury-writer.desktop
+~/.config/mercury/service.json
+```
+
+Launch Mercury locally with:
+
+```bash
+mercury-writer
+```
+
+or from the desktop application menu.
+
+To start Mercury if needed and expose it privately through Tailscale Serve:
+
+```bash
+mercurycast
+```
+
+Useful variants:
+
+```bash
+mercurycast status
+mercurycast local
+mercurycast stop
+```
+
+`mercurycast` is intentionally independent of LOOK/Future Crash. It owns Mercury's simple start/status/Tailscale behavior. The small `~/.config/mercury/service.json` file exists only as a loose integration hook: LOOK or another local tool can discover Mercury's port, launcher, and status command without Mercury depending on LOOK.
+
+If `~/.local/bin` is not already on your `PATH`, add it to your shell configuration.
+
 
 From the Mercury folder:
 
@@ -734,11 +821,9 @@ Mercury itself has no third-party Python or JavaScript package dependencies.
 
 ---
 
-# Notes for other platforms
+# Platform notes
 
-Mercury's application code is not inherently macOS-specific: it is HTML plus a Python standard-library server, and Ollama supports additional platforms.
-
-The setup commands and installer above are intentionally focused on macOS because that is the currently tested installation path for this project.
+Mercury's application code is platform-neutral: HTML plus a Python standard-library server. The installer now supports macOS and Linux. Windows remains untested and does not yet have a first-party Mercury installer.
 
 ---
 

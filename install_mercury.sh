@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_INSTALL_DIR="$HOME/Applications/Mercury-Writer"
+OS_NAME="$(uname -s)"
+case "$OS_NAME" in
+  Darwin)
+    DEFAULT_INSTALL_DIR="$HOME/Applications/Mercury-Writer"
+    LAUNCHER_NAME="Launch Mercury.command"
+    ;;
+  Linux)
+    DEFAULT_INSTALL_DIR="$HOME/.local/share/mercury-writer"
+    LAUNCHER_NAME="launch-mercury.sh"
+    ;;
+  *)
+    echo "Mercury Writer installer currently supports macOS and Linux."
+    exit 1
+    ;;
+esac
+
 SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 say() { printf "\n%s\n" "$*"; }
@@ -18,10 +33,7 @@ ask_yes_no() {
   [[ "$reply" =~ ^[Yy]$ ]]
 }
 
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "This installer currently supports macOS only."
-  exit 1
-fi
+# macOS and Linux are supported. Homebrew is used when available on either platform.
 
 say "Mercury Writer installer"
 
@@ -57,7 +69,7 @@ say "Installing Mercury Writer"
 mkdir -p "$INSTALL_DIR"
 cp "$HTML_FILE" "$INSTALL_DIR/"
 cp "$SERVER_FILE" "$INSTALL_DIR/mercury_server.py"
-for extra in README.txt README.md LICENSE; do
+for extra in README.txt README.md LICENSE mercury_ai.json; do
   [[ -f "$SOURCE_DIR/$extra" ]] && cp "$SOURCE_DIR/$extra" "$INSTALL_DIR/$extra"
 done
 
@@ -146,15 +158,17 @@ else
 fi
 
 say "Creating launcher"
-LAUNCHER="$INSTALL_DIR/Launch Mercury.command"
+
+LAUNCHER="$INSTALL_DIR/$LAUNCHER_NAME"
+
 cat > "$LAUNCHER" <<'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 
 MERCURY_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 SERVER="$MERCURY_DIR/mercury_server.py"
 LOG="$MERCURY_DIR/mercury-launch.log"
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin:$PATH"
 
 clear
 echo "Mercury Writer"
@@ -183,8 +197,6 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Import only the API key from Mercury's protected secrets file.
-# Do not source the user's entire shell configuration.
 if [[ -f "$HOME/.zsh_secrets" ]]; then
   KEY_LINE="$(grep -E '^[[:space:]]*export[[:space:]]+OLLAMA_API_KEY=' "$HOME/.zsh_secrets" | tail -n 1 || true)"
   [[ -n "$KEY_LINE" ]] && eval "$KEY_LINE"
@@ -192,14 +204,14 @@ fi
 
 echo "Python: $(python3 --version 2>&1)"
 if command -v ollama >/dev/null 2>&1 && ollama list >/dev/null 2>&1; then
-  echo "Ollama: service reachable"
+  echo "Local Ollama: reachable"
 else
-  echo "Ollama: WARNING — service not reachable"
+  echo "Local Ollama: not reachable (Mercury will also try configured remote AI hosts)"
 fi
 
 echo
 echo "Starting Mercury Writer..."
-echo "Leave this Terminal window open while Mercury is running."
+echo "Leave this terminal open while Mercury is running."
 echo
 echo "Open:"
 echo "  http://127.0.0.1:8765"
@@ -220,21 +232,166 @@ echo
 read -r -p "Press Return to close this window..."
 exit "$STATUS"
 EOF
+
 chmod 755 "$LAUNCHER"
 
-# Verify the launcher really is executable before declaring success.
+if [[ "$OS_NAME" == "Linux" ]]; then
+  mkdir -p "$HOME/.local/bin"
+  cat > "$HOME/.local/bin/mercury-writer" <<EOF
+#!/usr/bin/env bash
+exec "$LAUNCHER"
+EOF
+  chmod 755 "$HOME/.local/bin/mercury-writer"
+
+  cat > "$HOME/.local/bin/mercurycast" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+MERCURY_DIR="$HOME/.local/share/mercury-writer"
+SERVER="$MERCURY_DIR/mercury_server.py"
+LOG="$MERCURY_DIR/mercury-server.log"
+LOCAL_URL="http://127.0.0.1:8765"
+
+usage() {
+  cat <<USAGE
+Mercury Writer Tailscale launcher
+
+Usage:
+  mercurycast           Start Mercury if needed and expose it privately with Tailscale Serve
+  mercurycast status    Show Mercury and Tailscale Serve status
+  mercurycast stop      Stop Mercury's Tailscale Serve mapping
+  mercurycast local     Start Mercury locally without changing Tailscale Serve
+USAGE
+}
+
+mercury_running() {
+  curl -fsS "$LOCAL_URL" >/dev/null 2>&1
+}
+
+start_mercury() {
+  if mercury_running; then
+    echo "Mercury Writer: already running at $LOCAL_URL"
+    return
+  fi
+
+  if [[ ! -f "$SERVER" ]]; then
+    echo "Mercury Writer server not found:"
+    echo "  $SERVER"
+    exit 1
+  fi
+
+  # Import only Mercury's protected web-search key if present.
+  if [[ -f "$HOME/.zsh_secrets" ]]; then
+    KEY_LINE="$(grep -E '^[[:space:]]*export[[:space:]]+OLLAMA_API_KEY=' "$HOME/.zsh_secrets" | tail -n 1 || true)"
+    [[ -n "$KEY_LINE" ]] && eval "$KEY_LINE"
+  fi
+
+  echo "Starting Mercury Writer..."
+  (
+    cd "$MERCURY_DIR"
+    nohup python3 "$SERVER" >"$LOG" 2>&1 &
+  )
+
+  for _ in {1..20}; do
+    if mercury_running; then
+      echo "Mercury Writer: running at $LOCAL_URL"
+      return
+    fi
+    sleep 0.25
+  done
+
+  echo "Mercury Writer did not become ready."
+  echo "Log:"
+  echo "  $LOG"
+  exit 1
+}
+
+show_status() {
+  if mercury_running; then
+    echo "Mercury Writer: running at $LOCAL_URL"
+  else
+    echo "Mercury Writer: not running"
+  fi
+  echo
+  if command -v tailscale >/dev/null 2>&1; then
+    tailscale serve status || true
+  else
+    echo "Tailscale: command not found"
+  fi
+}
+
+case "${1:-start}" in
+  start)
+    start_mercury
+    if ! command -v tailscale >/dev/null 2>&1; then
+      echo "Tailscale is not installed or not on PATH."
+      exit 1
+    fi
+    echo "Publishing Mercury privately on your tailnet..."
+    tailscale serve --bg 8765
+    echo
+    show_status
+    ;;
+  local)
+    start_mercury
+    ;;
+  status)
+    show_status
+    ;;
+  stop)
+    if command -v tailscale >/dev/null 2>&1; then
+      # Reset only if Mercury owns the root mapping. This mirrors the simple
+      # single-root Serve setup used by Mercury; LOOK/Future Crash need not depend on it.
+      tailscale serve reset
+      echo "Tailscale Serve configuration reset."
+      echo "Mercury itself may still be running locally at $LOCAL_URL"
+    else
+      echo "Tailscale: command not found"
+      exit 1
+    fi
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+EOF
+  chmod 755 "$HOME/.local/bin/mercurycast"
+
+  mkdir -p "$HOME/.config/mercury"
+  cat > "$HOME/.config/mercury/service.json" <<EOF
+{
+  "name": "Mercury Writer",
+  "service": "mercury",
+  "local_url": "http://127.0.0.1:8765",
+  "port": 8765,
+  "launcher": "$HOME/.local/bin/mercury-writer",
+  "cast_command": "$HOME/.local/bin/mercurycast",
+  "status_command": "$HOME/.local/bin/mercurycast status"
+}
+EOF
+
+  mkdir -p "$HOME/.local/share/applications"
+  cat > "$HOME/.local/share/applications/mercury-writer.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Mercury Writer
+Comment=Local-first writing studio
+Exec=$HOME/.local/bin/mercury-writer
+Terminal=true
+Categories=Office;TextEditor;
+EOF
+fi
+
 if [[ ! -x "$LAUNCHER" ]]; then
   echo
   echo "ERROR: Could not make the launcher executable:"
   echo "  $LAUNCHER"
-  echo
-  echo "You can repair it manually with:"
-  echo "  chmod 755 \"$LAUNCHER\""
   exit 1
 fi
-
-echo "Launcher permissions set:"
-ls -l "$LAUNCHER"
 
 say "Installation complete"
 echo "Mercury Writer is installed at:"

@@ -1055,7 +1055,7 @@ function renderAI(){
  $("#aiWeb").onchange=()=>{
    localStorage.setItem("mercury_ai_web",String($("#aiWeb").checked));
    const status=$("#aiStatus");
-   if(status && !$("#aiSend").disabled) status.textContent=$("#aiWeb").checked?"Ollama connected · Web search enabled":"Ollama connected";
+   if(status && !$("#aiSend").disabled) status.textContent=$("#aiWeb").checked?"Web available when useful":"AI ready";
  };
  $("#aiSend").onclick=sendAI;
  $("#aiPrompt").onkeydown=e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){e.preventDefault();sendAI()}};
@@ -1117,6 +1117,20 @@ function redrawAILog(){
  log.innerHTML=aiMessages.map(m=>`<div class="ai-msg ${m.role}">${m.role==="assistant"?renderAIMarkdown(m.content):escapeHtml(m.content)}</div>`).join("");
  log.scrollTop=log.scrollHeight;
 }
+function mercuryAIStatus(host,webState="",memoryRecent=null,memoryLong=false){
+ const bits=[`AI ${host||"Ollama"}`];
+ if(webState==="used")bits.push("Web used");
+ else if(webState==="skipped")bits.push("Web not needed");
+ else if(webState==="no_key")bits.push("Web key unavailable");
+ else if(webState==="unavailable")bits.push("Web unavailable");
+ else if(webState==="empty")bits.push("Web found nothing useful");
+ if(memoryRecent!==null){
+   let m=`Memory ${memoryRecent} recent`;
+   if(memoryLong)m+=" + long-term";
+   bits.push(m);
+ }
+ return bits.join(" · ");
+}
 async function loadOllamaModels(){
  const model=$("#aiModel"), status=$("#aiStatus");
  try{
@@ -1129,7 +1143,7 @@ async function loadOllamaModels(){
    const preferred=(saved&&names.includes(saved)?saved:null)||names.find(n=>n.startsWith("qwen3:8b"))||names.find(n=>n.startsWith("gemma3"))||names[0];
    if(preferred)model.value=preferred;
    model.onchange=()=>localStorage.setItem("mercury_ai_model",model.value);
-   status.textContent=$("#aiWeb")?.checked?"Ollama connected · Web search enabled":"Ollama connected";
+   status.textContent=mercuryAIStatus(data.mercury?.active_host||"Ollama",$("#aiWeb")?.checked?(data.mercury?.web_ready?"":"no_key"):"");
  }catch(e){
    model.innerHTML=`<option>qwen3:8b</option>`;
    status.textContent="AI requires mercury_server.py (or a CORS-enabled local Ollama endpoint).";
@@ -1138,6 +1152,7 @@ async function loadOllamaModels(){
 function contextForScope(scope){
  const a=active();
  const stats=`MERCURY DOCUMENT STATISTICS (exact application counts; do not estimate these):
+PROJECT TITLE: ${project.title||"Untitled Novel"}
 Project words: ${projectWords()}
 Current scene words: ${words(a?.scene.text||"")}
 Estimated pages at ${project.wordsPerPage||300} words/page: ${Math.ceil(projectWords()/(project.wordsPerPage||300))}
@@ -1154,14 +1169,14 @@ async function sendAI(){
  const prompt=$("#aiPrompt").value.trim(); if(!prompt)return;
  const model=$("#aiModel").value, scope=$("#aiScope").value, web=$("#aiWeb").checked;
  aiMessages.push({role:"user",content:prompt}); $("#aiPrompt").value=""; redrawAILog();
- $("#aiStatus").textContent=web?"Searching web…":"Thinking locally…"; $("#aiSend").disabled=true;
+ $("#aiStatus").textContent=web?"Thinking · web available if useful…":"Thinking…"; $("#aiSend").disabled=true;
  try{
    const body={model, prompt, context:contextForScope(scope), history:aiMessages.slice(-12), web};
    const r=await fetch("/api/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
    const data=await r.json();
    if(!r.ok) throw new Error(data.error||"AI request failed");
    aiMessages.push({role:"assistant",content:data.content||""}); redrawAILog();
-   $("#aiStatus").textContent=data.web_used?"Ollama connected · Web context used":(web?"Ollama connected · Web search unavailable":"Ollama connected");
+   $("#aiStatus").textContent=mercuryAIStatus(data.ai_host||"Ollama",data.web_status||"",data.memory_recent??null,!!data.memory_long);
  }catch(e){
    aiMessages.push({role:"assistant",content:"[Mercury could not reach the local assistant: "+e.message+"]"});redrawAILog();
    $("#aiStatus").textContent="Connection error";

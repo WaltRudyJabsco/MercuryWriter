@@ -10,21 +10,170 @@ Usage:
 Then open:
     http://127.0.0.1:8765
 
-Mercury's launcher can load OLLAMA_API_KEY from ~/.zsh_secrets; the server itself reads the environment variable.
+Mercury's launcher loads OLLAMA_API_KEY from ~/.zsh_secrets when available.
 """
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
-import json, os, sys, re, math, shutil, subprocess, tempfile
+import json, os, sys, re, math, shutil, subprocess, tempfile, time
+from datetime import datetime
 
 HOST="127.0.0.1"
 PORT=8765
-OLLAMA=os.environ.get("OLLAMA_HOST","http://127.0.0.1:11434").rstrip("/")
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
 ROOT=Path(__file__).resolve().parent
 MEMORY_FILE=ROOT / "mercury_memory.json"
 MEMORY_SLOTS=5
+AI_CONFIG_LOCAL=ROOT / "mercury_ai.json"
+AI_CONFIG_USER=Path.home() / ".config" / "mercury" / "ai.json"
+_HOST_CACHE={"at":0.0,"hosts":[]}
+HOST_CACHE_SECONDS=8.0
+
+def _clean_host_url(url):
+    return str(url or "").strip().rstrip("/")
+
+def _load_ai_config():
+    """Preferred Ollama host + fallbacks, with local Ollama always available."""
+    cfg={}
+    explicit=os.environ.get("MERCURY_AI_CONFIG")
+    candidates=[Path(explicit).expanduser()] if explicit else [AI_CONFIG_LOCAL,AI_CONFIG_USER]
+    for path in candidates:
+        try:
+            if path.exists():
+                loaded=json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded,dict):
+                    cfg=loaded
+                    break
+        except Exception as e:
+            print(f"Mercury AI config ignored ({path}): {e}",file=sys.stderr)
+
+    hosts=[]
+    seen=set()
+
+    def add(name,url):
+        url=_clean_host_url(url)
+        if not url or url in seen: return
+        seen.add(url)
+        hosts.append({"name":str(name or "Ollama")[:48],"url":url})
+
+    if os.environ.get("OLLAMA_HOST"):
+        add("Configured",os.environ["OLLAMA_HOST"])
+
+    for item in cfg.get("hosts",[]) if isinstance(cfg.get("hosts",[]),list) else []:
+        if isinstance(item,dict):
+            add(item.get("name") or "Ollama",item.get("url"))
+
+    add("Local","http://127.0.0.1:11434")
+
+    preferred=str(cfg.get("preferred_host") or "").strip()
+    if preferred:
+        hosts.sort(key=lambda h: 0 if h["name"]==preferred else 1)
+
+    return {"hosts":hosts,"preferred_host":preferred}
+
+def _probe_hosts(force=False):
+    now=time.monotonic()
+    if not force and _HOST_CACHE["hosts"] and now-_HOST_CACHE["at"]<HOST_CACHE_SECONDS:
+        return _HOST_CACHE["hosts"]
+
+    probed=[]
+    for host in _load_ai_config()["hosts"]:
+        row={**host,"reachable":False,"models":[],"error":""}
+        try:
+            data=get_json(host["url"]+"/api/tags",timeout=2.5)
+            row["models"]=[m.get("name","") for m in data.get("models",[]) if isinstance(m,dict) and m.get("name")]
+            row["reachable"]=True
+        except Exception as e:
+            row["error"]=str(e)
+        probed.append(row)
+
+    _HOST_CACHE["at"]=now
+    _HOST_CACHE["hosts"]=probed
+    return probed
+
+def _available_models():
+    hosts=_probe_hosts()
+    by_name={}
+    for host in hosts:
+        if not host["reachable"]: continue
+        for name in host["models"]:
+            by_name.setdefault(name,[]).append(host["name"])
+    models=[{"name":name,"hosts":names} for name,names in sorted(by_name.items(),key=lambda x:x[0].lower())]
+    active=next((h for h in hosts if h["reachable"]),None)
+    return {
+        "models":models,
+        "mercury":{
+            "active_host":active["name"] if active else None,
+            "hosts":[{"name":h["name"],"reachable":h["reachable"],"models":len(h["models"])} for h in hosts],
+            "web_ready":bool(os.environ.get("OLLAMA_API_KEY"))
+        }
+    }
+
+def _candidate_hosts(model):
+    hosts=_probe_hosts()
+    exact=[h for h in hosts if h["reachable"] and model in h["models"]]
+    return exact if exact else [h for h in hosts if h["reachable"]]
+
+def ollama_chat(model,messages,timeout=240):
+    """Route to a host that has the model; fall back if a host disappears."""
+    errors=[]
+    for host in _candidate_hosts(model):
+        try:
+            out=post_json(host["url"]+"/api/chat",{"model":model,"messages":messages,"stream":False},timeout=timeout)
+            return out,host
+        except Exception as e:
+            errors.append(f'{host["name"]}: {e}')
+            _HOST_CACHE["at"]=0.0
+    if not errors:
+        raise URLError("No configured Ollama host is reachable")
+    raise URLError("; ".join(errors))
+
+def should_search_web(prompt):
+    """Web checked means available when useful, not mandatory on every turn."""
+    text=" ".join(str(prompt or "").strip().lower().split())
+    bare=text.rstrip(" .!?")
+
+    if bare in {
+        "thanks","thank you","thanks so much","thank you so much","cool","great",
+        "perfect","awesome","excellent","okay","ok","got it","makes sense","i see",
+        "exactly","right","nice","yes","no","yep","nope","love it","that works",
+        "works for me","good","sounds good"
+    }:
+        return False
+
+    if any(p in bare for p in (
+        "make it shorter","make this shorter","try that again","rewrite this",
+        "rewrite it","tighten this","what do you think","why does this work",
+        "why does that work","does this work","read this","analyze this",
+        "look at this paragraph","look at this scene","keep the first",
+        "keep this","less sentimental","more concise","less wordy"
+    )):
+        return False
+
+    if any(term in bare for term in (
+        "search","look up","find sources","source this","verify","fact check",
+        "fact-check","today","current","latest","headline","headlines","news",
+        "recent","right now","as of","historical accuracy","was there","when did",
+        "how much did","who was","what happened"
+    )):
+        return True
+
+    if any(term in bare for term in (
+        "this sentence","this paragraph","this scene","this chapter",
+        "the manuscript","my prose","my draft"
+    )):
+        return False
+
+    return len(bare.split()) >= 4
+
+def _memory_worthy(prompt,reply):
+    text=" ".join(str(prompt or "").strip().lower().split()).rstrip(" .!?")
+    if not text: return False
+    if text in {"thanks","thank you","cool","great","perfect","awesome","okay","ok","yes","no","got it","exactly","nice"}:
+        return False
+    decision_words=("keep","prefer","remember","don't","do not","always","never","change","character","scene","chapter","story","plot","voice","period","fact")
+    return len(text.split())>=5 or any(w in text for w in decision_words)
 
 def _project_key(context):
     """Best-effort project identity from Mercury's supplied context."""
@@ -70,7 +219,7 @@ def _remember_exchange(mem,prompt,reply,model):
     """Keep five recent exchanges; fold the oldest into durable memory on overflow."""
     prompt=" ".join(str(prompt).split())[:500]
     reply=" ".join(str(reply).split())[:700]
-    if not prompt or not reply: return mem
+    if not prompt or not reply or not _memory_worthy(prompt,reply): return mem
     entry=f"Writer: {prompt} | Mercury: {reply}"
     recent=list(mem.get("recent",[]))
     recent.append(entry)
@@ -85,11 +234,7 @@ def _remember_exchange(mem,prompt,reply,model):
             f"EXISTING MEMORY:\n{long_term or '[empty]'}\n\nNEW OLDEST NOTE:\n{oldest}"
         )
         try:
-            out=post_json(OLLAMA+"/api/chat",{
-                "model":model,
-                "messages":[{"role":"user","content":merge_prompt}],
-                "stream":False
-            },timeout=120)
+            out,_host=ollama_chat(model,[{"role":"user","content":merge_prompt}],timeout=120)
             merged=((out.get("message") or {}).get("content") or "").strip()
             if merged: long_term=merged[:4000]
         except Exception:
@@ -300,9 +445,20 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/ollama/tags"):
             try:
-                self.send_json(get_json(OLLAMA+"/api/tags"))
+                payload=_available_models()
+                self.send_json(payload,200 if payload["models"] else 502)
             except Exception as e:
                 self.send_json({"error":str(e)},502)
+            return
+        if self.path.startswith("/api/ai/status"):
+            hosts=_probe_hosts(force=True)
+            active=next((h for h in hosts if h["reachable"]),None)
+            self.send_json({
+                "active_host":active["name"] if active else None,
+                "hosts":[{"name":h["name"],"url":h["url"],"reachable":h["reachable"],"models":len(h["models"])} for h in hosts],
+                "web_ready":bool(os.environ.get("OLLAMA_API_KEY")),
+                "memory_file":str(MEMORY_FILE)
+            })
             return
         return super().do_GET()
 
@@ -340,11 +496,13 @@ class Handler(SimpleHTTPRequestHandler):
             use_web=bool(body.get("web"))
             web_text=""
             web_used=False
+            web_status="off"
             memory_data=_load_memory()
             memory_key=_project_key(context)
             project_memory=_memory_for(memory_data,memory_key)
 
-            if use_web:
+            if use_web and should_search_web(prompt):
+                web_status="searching"
                 key=os.environ.get("OLLAMA_API_KEY")
                 if key:
                     try:
@@ -357,34 +515,35 @@ class Handler(SimpleHTTPRequestHandler):
                                 chunks.append(f"{item.get('title','')}\n{item.get('content') or item.get('snippet','')}\n{item.get('url','')}")
                         web_text="\n\n".join(chunks)
                         web_used=bool(web_text)
+                        web_status="used" if web_used else "empty"
                     except Exception as e:
                         web_text=f"[Web search unavailable: {e}]"
+                        web_status="unavailable"
                 else:
                     web_text="[Web search requested, but OLLAMA_API_KEY is not present in the launch environment.]"
+                    web_status="no_key"
+            elif use_web:
+                web_status="skipped"
 
-            system = """You are Mercury, an intelligent writing partner.
+            today=datetime.now().strftime("%B %d, %Y").replace(" 0"," ")
+            system = f"""You are Mercury, an intelligent writing partner.
 
-Your first job is to understand the writer's question, intention, and supplied manuscript before trying to improve anything.
+The current real-world date is {today}. Your training knowledge may be older; never infer the present date from your training cutoff.
 
-Be perceptive rather than prescriptive. Notice what the writing is doing, why it works or fails, what it implies, and what the writer may be trying to accomplish. Prefer specific observations grounded in the supplied text over generic writing advice.
+Understand what the writer is asking before answering. Be perceptive rather than prescriptive.
 
-The manuscript outranks your assumptions. Treat what the manuscript establishes as true within the work. Distinguish clearly between what the text establishes, what you reasonably infer, and what remains unknown.
+The manuscript is your primary evidence. Pay close attention to its language, characters, continuity, implications, period, and established facts. Distinguish what the text establishes from what you infer. Never invent missing facts.
 
-Be especially attentive to continuity, implication, character intention, historical plausibility, prose rhythm, point of view, and the difference between what a text says and what a reader infers.
+Answer the actual question, and no more. Match the depth and length of your response to the writer's intent. A complex question deserves thought; a simple question deserves a simple answer; a conversational remark may need only a few words.
 
-Do not rewrite unless asked. Do not flatten unusual choices merely because they are unusual. When suggesting changes, preserve the writer's voice, intention, characters, period, and established facts.
+Do not rewrite, critique, summarize, suggest next steps, or offer additional help unless the request calls for it. Preserve the writer's voice and unusual choices rather than automatically improving them.
 
-Infer the kind of help the writer wants from the question. A request may call for close reading, critique, brainstorming, editing, continuity analysis, factual research, historical context, or rewriting. Do not make the writer choose a mode unnecessarily.
+When web results are available, use them only if they genuinely help answer the question. Ignore irrelevant results. Never force research into a response merely because a search was performed. Treat current dated web results as current even when they postdate your training knowledge.
 
-Before answering, determine what the writer is actually asking, what the supplied manuscript establishes, what is inference, and whether outside information is relevant. Then answer naturally. Do not expose this internal analysis unless it is useful to the writer.
+Be specific, concise, candid, and intelligent. Avoid boilerplate, flattery, generic encouragement, unnecessary headings, and demonstrations of helpfulness.
 
-If web search results are supplied, treat them as optional evidence, not as an assignment. Use them only when they materially improve the answer. Do not mention, summarize, or force irrelevant web results into a response merely because they are present. If the search found nothing useful, simply answer from the manuscript and your existing knowledge when appropriate. Never let weak web results override the manuscript.
+Know when the best response is a short one."""
 
-Never invent manuscript facts, research results, quotations, or sources. If something important is uncertain, say what is uncertain.
-
-Be concise when the answer is simple and thorough when the question requires thought. Avoid boilerplate, unnecessary headings, generic encouragement, and repetitive disclaimers.
-
-The writer remains the author. Your purpose is to help the writer see the work more clearly, understand what is already on the page, and make better decisions about what comes next."""
             user_content = prompt
             remembered=_memory_context(project_memory)
             if remembered:
@@ -401,14 +560,21 @@ The writer remains the author. Your purpose is to help the writer see the work m
                     messages.append({"role":m["role"],"content":m.get("content","")})
             messages.append({"role":"user","content":user_content})
 
-            out=post_json(OLLAMA+"/api/chat",{"model":model,"messages":messages,"stream":False},timeout=240)
+            out,ai_host=ollama_chat(model,messages,timeout=240)
             content=((out.get("message") or {}).get("content") or "").strip()
             if content:
                 project_memory=_remember_exchange(project_memory,prompt,content,model)
                 memory_data[memory_key]=project_memory
                 try: _save_memory(memory_data)
                 except Exception as e: print("Mercury memory save failed:",e,file=sys.stderr)
-            self.send_json({"content":content,"web_used":web_used})
+            self.send_json({
+                "content":content,
+                "web_used":web_used,
+                "web_status":web_status,
+                "ai_host":ai_host["name"],
+                "memory_recent":len(project_memory.get("recent",[])),
+                "memory_long":bool(project_memory.get("long_term"))
+            })
         except HTTPError as e:
             self.send_json({"error":f"HTTP {e.code}: {e.read().decode('utf-8','ignore')}"},502)
         except URLError as e:
@@ -420,7 +586,12 @@ if __name__=="__main__":
     os.chdir(ROOT)
     httpd=ThreadingHTTPServer((HOST,PORT),Handler)
     print(f"Mercury Writer: http://{HOST}:{PORT}")
-    print(f"Ollama: {OLLAMA}")
+    print("AI hosts:")
+    for h in _probe_hosts(force=True):
+        state="ready" if h["reachable"] else "unavailable"
+        detail=f' · {len(h["models"])} models' if h["reachable"] else ""
+        print(f'  {h["name"]}: {h["url"]} · {state}{detail}')
     print("Web search key:", "available" if os.environ.get("OLLAMA_API_KEY") else "not found")
+    print("Memory:", MEMORY_FILE)
     try: httpd.serve_forever()
     except KeyboardInterrupt: pass
