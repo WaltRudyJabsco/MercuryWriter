@@ -16,7 +16,8 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
-import json, os, sys, re, math, shutil, subprocess, tempfile, time
+from urllib.parse import urlparse, parse_qs
+import json, os, sys, re, math, shutil, subprocess, tempfile, time, hashlib, uuid, threading
 from datetime import datetime
 
 HOST="127.0.0.1"
@@ -29,6 +30,268 @@ AI_CONFIG_LOCAL=ROOT / "mercury_ai.json"
 AI_CONFIG_USER=Path.home() / ".config" / "mercury" / "ai.json"
 _HOST_CACHE={"at":0.0,"hosts":[]}
 HOST_CACHE_SECONDS=8.0
+HISTORY_DIR=ROOT / "history"
+HISTORY_LIMIT=100
+STATE_DIR=ROOT / "state"
+CANONICAL_PROJECT=STATE_DIR / "current.mercury"
+REVISION_FILE=STATE_DIR / "revision.json"
+REVISION_DIR=STATE_DIR / "revisions"
+CONFLICT_DIR=STATE_DIR / "conflicts"
+WORKSPACE_ROOT=ROOT / "workspace"
+STATE_LOCK=threading.RLock()
+
+
+
+def _nested_value(obj, paths):
+    for path in paths:
+        cur=obj
+        ok=True
+        for key in path:
+            if not isinstance(cur,dict) or key not in cur:
+                ok=False; break
+            cur=cur[key]
+        if ok and isinstance(cur,str) and cur.strip():
+            return cur.strip()
+    return ""
+
+def _fabric_selection():
+    """Read LOOK/Fabric preference when it is explicitly available.
+
+    Mercury never requires Fabric. Environment variables are the cleanest hook;
+    known LOOK config locations are accepted when they expose an unambiguous
+    preferred model/host.
+    """
+    model=(os.environ.get("FABRIC_MODEL") or os.environ.get("LOOK_MODEL") or "").strip()
+    host=(os.environ.get("FABRIC_OLLAMA_HOST") or os.environ.get("LOOK_OLLAMA_HOST") or "").strip()
+    source="environment" if (model or host) else ""
+
+    candidates=[
+        Path.home()/".config"/"look"/"config.json",
+        Path.home()/".config"/"look"/"settings.json",
+        Path.home()/".local"/"share"/"look"/"settings.json",
+        Path.home()/".local"/"share"/"LOOK"/"settings.json",
+    ]
+    for path in candidates:
+        if model and host: break
+        try:
+            if not path.exists(): continue
+            data=json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data,dict): continue
+            found_model=_nested_value(data,[
+                ("ai","preferred_model"),("ai","local_preferred_model"),
+                ("ollama","model"),("ollama","preferred_model"),
+                ("preferred_model",),("model",)
+            ])
+            found_host=_nested_value(data,[
+                ("ai","ollama_host"),("ollama","host"),("ollama_host",)
+            ])
+            if not model and found_model: model=found_model
+            if not host and found_host: host=found_host
+            if (found_model or found_host) and not source: source=str(path)
+        except Exception:
+            pass
+    return {"model":model or None,"host":host or None,"source":source or None}
+
+def _atomic_json(path,data):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    tmp=path.with_suffix(path.suffix+".tmp")
+    tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+    os.replace(tmp,path)
+
+def _project_digest(project):
+    payload=json.dumps(project,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+def _new_revision_id():
+    # Lexically sortable timestamp plus UUID entropy; no wall-clock timestamp is used as identity.
+    return datetime.now().astimezone().strftime("%Y%m%dT%H%M%S.%f%z")+"-"+uuid.uuid4().hex[:12]
+
+def _load_revision():
+    if not REVISION_FILE.exists(): return None
+    try:return json.loads(REVISION_FILE.read_text(encoding="utf-8"))
+    except Exception:return None
+
+def _revision_envelope(project,parent=None,source="server",revision_id=None):
+    return {
+        "revision_id":revision_id or _new_revision_id(),
+        "parent_revision":parent,
+        "created_at":datetime.now().astimezone().isoformat(timespec="milliseconds"),
+        "content_sha256":_project_digest(project),
+        "source":str(source or "unknown"),
+    }
+
+def _save_revision_copy(project,meta):
+    REVISION_DIR.mkdir(parents=True,exist_ok=True)
+    _atomic_json(REVISION_DIR/(meta["revision_id"]+".json"),{"revision":meta,"project":project})
+
+def _save_conflict(project,parent,source,current):
+    CONFLICT_DIR.mkdir(parents=True,exist_ok=True)
+    meta=_revision_envelope(project,parent,source)
+    path=CONFLICT_DIR/(meta["revision_id"]+".json")
+    _atomic_json(path,{"revision":meta,"conflicts_with":current,"project":project})
+    return str(path),meta
+
+def _save_canonical_project(project,parent_revision=None,source="server",force=False):
+    if not isinstance(project,dict) or not isinstance(project.get("chapters"),list): raise ValueError("Invalid Mercury project")
+    with STATE_LOCK:
+        current=_load_revision()
+        digest=_project_digest(project)
+        if current and current.get("content_sha256")==digest:
+            return {"saved":False,"revision":current,"reason":"unchanged"}
+        current_id=current.get("revision_id") if current else None
+        if current and not force and parent_revision!=current_id:
+            path,branch=_save_conflict(project,parent_revision,source,current)
+            return {"saved":False,"conflict":True,"revision":current,"branch_revision":branch,"conflict_path":path}
+        meta=_revision_envelope(project,current_id,source)
+        _atomic_json(CANONICAL_PROJECT,project)
+        _atomic_json(REVISION_FILE,meta)
+        _save_revision_copy(project,meta)
+        return {"saved":True,"revision":meta}
+
+def _load_canonical_project():
+    if not CANONICAL_PROJECT.exists(): return None
+    data=json.loads(CANONICAL_PROJECT.read_text(encoding="utf-8"))
+    if not isinstance(data,dict) or not isinstance(data.get("chapters"),list): raise ValueError("Invalid canonical Mercury project")
+    return data
+
+def _canonical_state():
+    return {"project":_load_canonical_project(),"revision":_load_revision()}
+
+def _workspace_dir(project): return WORKSPACE_ROOT/_safe_slug(project.get("title") or "Untitled")
+
+def _frontmatter(scene,chapter_id,scene_index):
+    return "---\n"+f"mercury_scene_id: {scene.get('id','')}\n"+f"mercury_chapter_id: {chapter_id}\n"+f"mercury_scene_index: {scene_index}\n"+f"title: {json.dumps(scene.get('title') or 'Untitled Scene',ensure_ascii=False)}\n"+"---\n\n"
+
+def _materialize_workspace(project):
+    root=_workspace_dir(project); manuscript=root/"manuscript"
+    if manuscript.exists(): shutil.rmtree(manuscript)
+    manuscript.mkdir(parents=True,exist_ok=True)
+    rev=_load_revision()
+    manifest={"format":"mercury-workspace-2","title":project.get("title","Untitled"),"author":project.get("author",""),"base_revision":rev.get("revision_id") if rev else None,"base_sha256":rev.get("content_sha256") if rev else _project_digest(project),"chapters":[]}
+    for ci,ch in enumerate(project.get("chapters",[]),1):
+        cslug=f"{ci:02d}-{_safe_slug(ch.get('title') or f'Chapter {ci}')}"; cdir=manuscript/cslug; cdir.mkdir(parents=True,exist_ok=True)
+        crow={"id":ch.get("id"),"title":ch.get("title"),"dir":cslug,"scenes":[]}
+        for si,scene in enumerate(ch.get("scenes",[]),1):
+            fname=f"{si:02d}-{_safe_slug(scene.get('title') or f'Scene {si}')}.md"; (cdir/fname).write_text(_frontmatter(scene,ch.get("id",""),si)+(scene.get("text") or ""),encoding="utf-8")
+            crow["scenes"].append({"id":scene.get("id"),"file":f"manuscript/{cslug}/{fname}"})
+        manifest["chapters"].append(crow)
+    _atomic_json(root/"mercury-workspace.json",manifest); return root
+
+def _parse_workspace_scene(path):
+    raw=path.read_text(encoding="utf-8"); meta={}; body=raw
+    if raw.startswith("---\n"):
+        end=raw.find("\n---\n",4)
+        if end>=0:
+            head=raw[4:end]; body=raw[end+5:]; body=body[1:] if body.startswith("\n") else body
+            for line in head.splitlines():
+                if ":" not in line: continue
+                k,v=line.split(":",1); v=v.strip()
+                if k.strip()=="title":
+                    try:v=json.loads(v)
+                    except Exception:pass
+                meta[k.strip()]=v
+    return meta,body
+
+def _ingest_workspace(project=None):
+    project=project or _load_canonical_project()
+    if not project: raise ValueError("No canonical Mercury project exists yet")
+    root=_workspace_dir(project); manifest_path=root/"mercury-workspace.json"
+    if not manifest_path.exists(): raise ValueError("Workspace has not been created")
+    manifest=json.loads(manifest_path.read_text(encoding="utf-8")); by_scene={str(s.get("id")):s for c in project.get("chapters",[]) for s in c.get("scenes",[])}; changed=0
+    for crow in manifest.get("chapters",[]):
+        for srow in crow.get("scenes",[]):
+            path=root/srow.get("file","")
+            if not path.exists(): continue
+            meta,body=_parse_workspace_scene(path); scene=by_scene.get(str(meta.get("mercury_scene_id") or srow.get("id") or ""))
+            if not scene: continue
+            title=meta.get("title") or scene.get("title") or "Untitled Scene"
+            if scene.get("text","")!=body or scene.get("title")!=title: scene["text"]=body; scene["title"]=title; changed+=1
+    result={"saved":False,"revision":_load_revision()}
+    if changed:
+        project["modified"]=datetime.now().isoformat(timespec="seconds")
+        result=_save_canonical_project(project,manifest.get("base_revision"),"nvim")
+        if result.get("conflict"):
+            return _load_canonical_project(),changed,result
+        _save_history_snapshot(project)
+        # Move the workspace base forward after a successful import.
+        manifest["base_revision"]=result.get("revision",{}).get("revision_id")
+        manifest["base_sha256"]=result.get("revision",{}).get("content_sha256")
+        _atomic_json(manifest_path,manifest)
+    return project,changed,result
+
+def _safe_slug(value):
+    slug=re.sub(r"[^A-Za-z0-9._-]+","-",str(value or "Untitled")).strip("-._")
+    return (slug or "Untitled")[:80]
+
+def _history_project_dir(project):
+    # Stable enough for recovery while keeping each manuscript visually separate.
+    title=_safe_slug(project.get("title") if isinstance(project,dict) else "Untitled")
+    return HISTORY_DIR / title
+
+def _history_entries(project_title=None):
+    roots=[]
+    if project_title:
+        roots=[HISTORY_DIR/_safe_slug(project_title)]
+    elif HISTORY_DIR.exists():
+        roots=[p for p in HISTORY_DIR.iterdir() if p.is_dir()]
+    rows=[]
+    for root in roots:
+        if not root.exists(): continue
+        for p in root.glob("*.mercury"):
+            try:
+                stat=p.stat()
+                rows.append({
+                    "id":f"{root.name}/{p.name}",
+                    "title":root.name.replace("-"," "),
+                    "saved_at":datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                    "bytes":stat.st_size
+                })
+            except OSError:
+                pass
+    rows.sort(key=lambda x:x["saved_at"],reverse=True)
+    return rows
+
+def _save_history_snapshot(project):
+    if not isinstance(project,dict) or not isinstance(project.get("chapters"),list):
+        raise ValueError("Invalid Mercury project")
+    folder=_history_project_dir(project)
+    folder.mkdir(parents=True,exist_ok=True)
+    payload=json.dumps(project,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+    digest=hashlib.sha256(payload).hexdigest()[:12]
+
+    latest=next(iter(sorted(folder.glob("*.mercury"),reverse=True)),None)
+    if latest:
+        try:
+            old=json.loads(latest.read_text(encoding="utf-8"))
+            old_payload=json.dumps(old,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+            if hashlib.sha256(old_payload).hexdigest()[:12]==digest:
+                return {"saved":False,"id":f"{folder.name}/{latest.name}","reason":"unchanged"}
+        except Exception:
+            pass
+
+    stamp=datetime.now().strftime("%Y%m%d-%H%M%S")
+    path=folder/f"{stamp}-{digest}.mercury"
+    tmp=path.with_suffix(".tmp")
+    tmp.write_bytes(payload)
+    os.replace(tmp,path)
+
+    snapshots=sorted(folder.glob("*.mercury"),reverse=True)
+    for old in snapshots[HISTORY_LIMIT:]:
+        try: old.unlink()
+        except OSError: pass
+    return {"saved":True,"id":f"{folder.name}/{path.name}","saved_at":datetime.now().isoformat(timespec="seconds")}
+
+def _load_history_snapshot(snapshot_id):
+    parts=Path(str(snapshot_id or "")).parts
+    if len(parts)!=2 or any(part in ("","..",".") for part in parts):
+        raise ValueError("Invalid history snapshot")
+    path=(HISTORY_DIR/parts[0]/parts[1]).resolve()
+    if HISTORY_DIR.resolve() not in path.parents or path.suffix!=".mercury":
+        raise ValueError("Invalid history snapshot")
+    data=json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data,dict) or not isinstance(data.get("chapters"),list):
+        raise ValueError("Invalid Mercury project")
+    return data
 
 def _clean_host_url(url):
     return str(url or "").strip().rstrip("/")
@@ -66,11 +329,18 @@ def _load_ai_config():
 
     add("Local","http://127.0.0.1:11434")
 
+    fabric=_fabric_selection()
+    if fabric.get("host"):
+        add("Fabric",fabric["host"])
+
     preferred=str(cfg.get("preferred_host") or "").strip()
-    if preferred:
+    if fabric.get("host"):
+        fabric_url=_clean_host_url(fabric["host"])
+        hosts.sort(key=lambda h: 0 if h["url"]==fabric_url else 1)
+    elif preferred:
         hosts.sort(key=lambda h: 0 if h["name"]==preferred else 1)
 
-    return {"hosts":hosts,"preferred_host":preferred}
+    return {"hosts":hosts,"preferred_host":preferred,"fabric":fabric}
 
 def _probe_hosts(force=False):
     now=time.monotonic()
@@ -101,12 +371,18 @@ def _available_models():
             by_name.setdefault(name,[]).append(host["name"])
     models=[{"name":name,"hosts":names} for name,names in sorted(by_name.items(),key=lambda x:x[0].lower())]
     active=next((h for h in hosts if h["reachable"]),None)
+    fabric=_fabric_selection()
+    fabric_model=fabric.get("model")
+    if fabric_model and fabric_model not in by_name:
+        fabric_model=None
     return {
         "models":models,
         "mercury":{
             "active_host":active["name"] if active else None,
             "hosts":[{"name":h["name"],"reachable":h["reachable"],"models":len(h["models"])} for h in hosts],
-            "web_ready":bool(os.environ.get("OLLAMA_API_KEY"))
+            "web_ready":bool(os.environ.get("OLLAMA_API_KEY")),
+            "fabric_model":fabric_model,
+            "fabric_source":fabric.get("source")
         }
     }
 
@@ -418,13 +694,13 @@ class Handler(SimpleHTTPRequestHandler):
         # but fall back to any Mercury_Writer*.html file so renaming a release
         # cannot break the launcher.
         if path=="/":
-            preferred = ROOT / "Mercury_Writer_1_2_7.html"
+            preferred = ROOT / "Mercury_Writer_1_3_1.html"
             if preferred.exists():
                 return str(preferred)
             candidates = sorted(ROOT.glob("Mercury_Writer*.html"))
             if candidates:
                 return str(candidates[-1])
-            return str(ROOT / "Mercury_Writer_1_2_7.html")
+            return str(ROOT / "Mercury_Writer_1_3_1.html")
         return str(ROOT / path.split("?",1)[0].lstrip("/"))
 
     def send_json(self, obj, status=200):
@@ -443,6 +719,28 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers(); self.wfile.write(data)
 
     def do_GET(self):
+        parsed=urlparse(self.path)
+        if parsed.path=="/api/history":
+            title=parse_qs(parsed.query).get("title",[""])[0]
+            self.send_json({"snapshots":_history_entries(title or None)[:30]})
+            return
+        if parsed.path=="/api/history/load":
+            try:
+                snapshot_id=parse_qs(parsed.query).get("id",[""])[0]
+                self.send_json({"project":_load_history_snapshot(snapshot_id)})
+            except Exception as e:
+                self.send_json({"error":str(e)},400)
+            return
+        if parsed.path=="/api/project/current":
+            try:self.send_json(_canonical_state())
+            except Exception as e:self.send_json({"error":str(e)},500)
+            return
+        if parsed.path=="/api/workspace/status":
+            try:
+                project=_load_canonical_project(); root=_workspace_dir(project) if project else None
+                self.send_json({"ready":bool(root and (root/"mercury-workspace.json").exists()),"path":str(root) if root else None})
+            except Exception as e:self.send_json({"error":str(e)},500)
+            return
         if self.path.startswith("/api/ollama/tags"):
             try:
                 payload=_available_models()
@@ -466,6 +764,23 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             n=int(self.headers.get("Content-Length","0"))
             body=json.loads(self.rfile.read(n) or b"{}")
+            if self.path=="/api/project/commit":
+                project=body.get("project")
+                result=_save_canonical_project(project,body.get("parent_revision"),body.get("source") or "browser")
+                self.send_json(result,409 if result.get("conflict") else 200)
+                return
+            if self.path=="/api/history/save":
+                result=_save_history_snapshot(body.get("project"))
+                self.send_json(result)
+                return
+            if self.path=="/api/workspace/export":
+                project=body.get("project") or _load_canonical_project()
+                if not project: raise ValueError("No Mercury project available")
+                root=_materialize_workspace(project); self.send_json({"ok":True,"path":str(root),"revision":_load_revision()}); return
+            if self.path=="/api/workspace/import":
+                project,changed,result=_ingest_workspace()
+                payload={"ok":not result.get("conflict"),"changed":changed,"project":project,"revision":result.get("revision"),"conflict":bool(result.get("conflict")),"conflict_path":result.get("conflict_path")}
+                self.send_json(payload,409 if result.get("conflict") else 200); return
             if self.path=="/api/export/pdf":
                 html=body.get("html","")
                 renderer="basic"

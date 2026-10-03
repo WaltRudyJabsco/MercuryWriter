@@ -69,6 +69,8 @@ say "Installing Mercury Writer"
 mkdir -p "$INSTALL_DIR"
 cp "$HTML_FILE" "$INSTALL_DIR/"
 cp "$SERVER_FILE" "$INSTALL_DIR/mercury_server.py"
+cp "$SOURCE_DIR/mercury" "$INSTALL_DIR/mercury"
+chmod 755 "$INSTALL_DIR/mercury"
 for extra in README.txt README.md LICENSE mercury_ai.json; do
   [[ -f "$SOURCE_DIR/$extra" ]] && cp "$SOURCE_DIR/$extra" "$INSTALL_DIR/$extra"
 done
@@ -234,6 +236,14 @@ exit "$STATUS"
 EOF
 
 chmod 755 "$LAUNCHER"
+if [[ "$OS_NAME" == "Darwin" ]]; then
+  mkdir -p "$HOME/.local/bin"
+  cat > "$HOME/.local/bin/mercury" <<EOF
+#!/usr/bin/env bash
+exec python3 "$INSTALL_DIR/mercury" "\$@"
+EOF
+  chmod 755 "$HOME/.local/bin/mercury"
+fi
 
 if [[ "$OS_NAME" == "Linux" ]]; then
   mkdir -p "$HOME/.local/bin"
@@ -242,6 +252,12 @@ if [[ "$OS_NAME" == "Linux" ]]; then
 exec "$LAUNCHER"
 EOF
   chmod 755 "$HOME/.local/bin/mercury-writer"
+
+  cat > "$HOME/.local/bin/mercury" <<EOF
+#!/usr/bin/env bash
+exec python3 "$INSTALL_DIR/mercury" "\$@"
+EOF
+  chmod 755 "$HOME/.local/bin/mercury"
 
   cat > "$HOME/.local/bin/mercurycast" <<'EOF'
 #!/usr/bin/env bash
