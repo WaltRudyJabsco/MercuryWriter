@@ -74,3 +74,44 @@ def test_unchanged_frame_omits_image_payload(tmp_path, monkeypatch):
     second=mod.capture_screen(previous_hash=first['hash'])
     assert second['ok'] is True and second['changed'] is False
     assert 'image_base64' not in second
+
+
+def test_wayland_never_selects_x11_only_import(monkeypatch):
+    mod=load_vision()
+    monkeypatch.setattr(mod.platform,'system',lambda:'Linux')
+    monkeypatch.setenv('XDG_SESSION_TYPE','wayland')
+    monkeypatch.setattr(mod,'_which',lambda *names: '/usr/bin/import' if 'import' in names else None)
+    monkeypatch.setattr(mod,'_portal_python',lambda:None)
+    provider=mod.capture_provider()
+    assert provider['tool']==''
+    assert provider['session']=='wayland'
+    assert 'Wayland screen capture' in provider['error']
+
+
+def test_wayland_uses_desktop_portal_before_x11_fallback(monkeypatch):
+    mod=load_vision()
+    monkeypatch.setattr(mod.platform,'system',lambda:'Linux')
+    monkeypatch.setenv('XDG_SESSION_TYPE','wayland')
+    monkeypatch.setattr(mod,'_which',lambda *names: None)
+    monkeypatch.setattr(mod,'_portal_python',lambda:'/usr/bin/python3')
+    provider=mod.capture_provider()
+    assert provider['name']=='xdg-desktop-portal'
+    assert provider['session']=='wayland'
+
+
+def test_portal_provider_uses_portal_capture_not_capture_command(tmp_path,monkeypatch):
+    mod=load_vision()
+    data=b'portal-frame'
+    monkeypatch.setattr(mod,'capture_provider',lambda:{'name':'xdg-desktop-portal','tool':'/usr/bin/python3','platform':'linux','session':'wayland'})
+    class Result:
+        returncode=0
+        stderr=b''
+    def portal(provider,output):
+        output.write_bytes(data)
+        return Result()
+    monkeypatch.setattr(mod,'_capture_portal',portal)
+    monkeypatch.setattr(mod,'_capture_command',lambda *args: (_ for _ in ()).throw(AssertionError('X11 command path used')))
+    monkeypatch.setattr(mod,'_compress',lambda source,dest,max_width,quality:(source,'image/png'))
+    result=mod.capture_screen()
+    assert result['ok'] is True
+    assert base64.b64decode(result['image_base64'])==data

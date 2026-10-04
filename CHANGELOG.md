@@ -1,3 +1,9 @@
+# 8.7.1 — FABRIC VISION WAYLAND
+
+- Route Linux Wayland screen capture through compositor-native tools or the XDG Desktop Screenshot portal instead of X11-only ImageMagick/scrot fallbacks.
+- Add explicit Wayland backend diagnostics so capture failures identify portal/tool availability or user cancellation rather than reporting a bogus missing filename.
+- Preserve Fabric Vision's user-initiated, ephemeral capture contract.
+
 # 8.7.0 — FABRIC VISION
 
 - Add user-initiated Fabric screen capture across trusted nodes through `/v1/vision/screen`.

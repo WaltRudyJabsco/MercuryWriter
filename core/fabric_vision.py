@@ -13,6 +13,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -31,8 +32,38 @@ def _which(*names: str) -> str | None:
     return None
 
 
+def _linux_wayland() -> bool:
+    """Return whether this process belongs to a Wayland desktop session."""
+    session = str(os.environ.get("XDG_SESSION_TYPE") or "").strip().lower()
+    return session == "wayland" or bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _portal_python() -> str | None:
+    """Find a Python with PyGObject so we can use the desktop screenshot portal."""
+    candidates = []
+    if sys.executable:
+        candidates.append(sys.executable)
+    if "/usr/bin/python3" not in candidates:
+        candidates.append("/usr/bin/python3")
+    for python in candidates:
+        if not os.path.exists(python):
+            continue
+        try:
+            probe = subprocess.run(
+                [python, "-c", "from gi.repository import Gio, GLib"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0:
+            return python
+    return None
+
+
 def capture_provider() -> dict:
-    """Return the first native screen-capture provider available on this node."""
+    """Return the best screen-capture provider available on this node."""
     system = platform.system().lower()
     if system == "darwin":
         tool = _which("/usr/sbin/screencapture", "screencapture")
@@ -41,19 +72,46 @@ def capture_provider() -> dict:
         return {"name": "", "tool": "", "platform": "macos", "error": "screencapture not found"}
 
     if system == "linux":
-        # Prefer desktop-aware tools before generic X11 capture. They understand
-        # Wayland/compositor semantics and fail more legibly when capture is denied.
-        candidates = (
+        wayland = _linux_wayland()
+
+        # Compositor-native tools come first. They avoid portal prompts where a
+        # desktop exposes a direct, user-session capture utility.
+        native = (
             ("grim", "grim"),
             ("gnome-screenshot", "gnome-screenshot"),
             ("spectacle", "spectacle"),
-            ("scrot", "scrot"),
-            ("imagemagick-import", "import"),
         )
-        for name, binary in candidates:
+        for name, binary in native:
             tool = _which(binary)
             if tool:
-                return {"name": name, "tool": tool, "platform": "linux"}
+                return {"name": name, "tool": tool, "platform": "linux", "session": "wayland" if wayland else "x11"}
+
+        if wayland:
+            # ImageMagick import/scrot are X11 capture tools. On Wayland they can
+            # emit the misleading "missing an image filename" error even though
+            # the filename is present. The desktop portal is the generic Wayland
+            # capture API and keeps permission in the compositor/user's hands.
+            portal_python = _portal_python()
+            if portal_python:
+                return {"name": "xdg-desktop-portal", "tool": portal_python, "platform": "linux", "session": "wayland"}
+            return {
+                "name": "",
+                "tool": "",
+                "platform": "linux",
+                "session": "wayland",
+                "error": "Wayland screen capture needs grim, gnome-screenshot, Spectacle, or xdg-desktop-portal/PyGObject",
+            }
+
+        # X11 fallbacks are valid only when an X11 desktop is actually active.
+        for name, binary in (("scrot", "scrot"), ("imagemagick-import", "import")):
+            tool = _which(binary)
+            if tool:
+                return {"name": name, "tool": tool, "platform": "linux", "session": "x11"}
+
+        # The portal is also a safe final fallback on X11 desktops that provide it.
+        portal_python = _portal_python()
+        if portal_python:
+            return {"name": "xdg-desktop-portal", "tool": portal_python, "platform": "linux", "session": "x11"}
         return {"name": "", "tool": "", "platform": "linux", "error": "no supported screen capture tool found"}
 
     return {"name": "", "tool": "", "platform": system or "unknown", "error": "screen capture is not supported on this platform"}
@@ -75,6 +133,110 @@ def _capture_command(provider: dict, output: Path) -> list[str]:
     if name == "imagemagick-import":
         return [tool, "-window", "root", str(output)]
     raise RuntimeError("no screen capture provider")
+
+
+_PORTAL_HELPER = r"""
+from gi.repository import Gio, GLib
+import sys, uuid
+
+output = sys.argv[1]
+connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+unique = (connection.get_unique_name() or "").lstrip(":").replace(".", "_")
+token = "fabricvision_" + uuid.uuid4().hex
+expected = "/org/freedesktop/portal/desktop/request/%s/%s" % (unique, token)
+loop = GLib.MainLoop()
+state = {"done": False, "error": "screenshot portal did not respond"}
+
+
+def on_response(conn, sender, object_path, interface, signal, parameters, user_data):
+    response, results = parameters.unpack()
+    state["done"] = True
+    if response == 0 and results.get("uri"):
+        try:
+            source = Gio.File.new_for_uri(results["uri"])
+            dest = Gio.File.new_for_path(output)
+            source.copy(dest, Gio.FileCopyFlags.OVERWRITE, None, None)
+            state["error"] = ""
+        except Exception as exc:
+            state["error"] = str(exc)
+    elif response == 1:
+        state["error"] = "screen capture cancelled"
+    else:
+        state["error"] = "screenshot portal failed"
+    loop.quit()
+
+
+subscription = connection.signal_subscribe(
+    "org.freedesktop.portal.Desktop",
+    "org.freedesktop.portal.Request",
+    "Response",
+    expected,
+    None,
+    Gio.DBusSignalFlags.NONE,
+    on_response,
+    None,
+)
+proxy = Gio.DBusProxy.new_sync(
+    connection,
+    Gio.DBusProxyFlags.NONE,
+    None,
+    "org.freedesktop.portal.Desktop",
+    "/org/freedesktop/portal/desktop",
+    "org.freedesktop.portal.Screenshot",
+    None,
+)
+options = {
+    "handle_token": GLib.Variant("s", token),
+    "interactive": GLib.Variant("b", False),
+}
+try:
+    result = proxy.call_sync(
+        "Screenshot",
+        GLib.Variant("(sa{sv})", ("", options)),
+        Gio.DBusCallFlags.NONE,
+        12000,
+        None,
+    )
+    returned = result.unpack()[0]
+    if returned != expected:
+        connection.signal_unsubscribe(subscription)
+        subscription = connection.signal_subscribe(
+            "org.freedesktop.portal.Desktop",
+            "org.freedesktop.portal.Request",
+            "Response",
+            returned,
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_response,
+            None,
+        )
+except Exception as exc:
+    print(str(exc), file=sys.stderr)
+    raise SystemExit(2)
+
+
+def timeout():
+    state["error"] = "screenshot portal timed out"
+    loop.quit()
+    return False
+
+GLib.timeout_add_seconds(12, timeout)
+loop.run()
+connection.signal_unsubscribe(subscription)
+if state["error"]:
+    print(state["error"], file=sys.stderr)
+    raise SystemExit(2)
+"""
+
+
+def _capture_portal(provider: dict, output: Path) -> subprocess.CompletedProcess:
+    """Capture through xdg-desktop-portal on the user's session bus."""
+    return subprocess.run(
+        [str(provider.get("tool") or "/usr/bin/python3"), "-c", _PORTAL_HELPER, str(output)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=15,
+    )
 
 
 def _compress(source: Path, dest: Path, max_width: int, quality: int) -> tuple[Path, str]:
@@ -108,7 +270,10 @@ def capture_screen(*, previous_hash: str = "", max_width: int = DEFAULT_MAX_WIDT
         raw = root / "screen.png"
         encoded = root / "screen.webp"
         try:
-            proc = subprocess.run(_capture_command(provider, raw), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=12)
+            if provider.get("name") == "xdg-desktop-portal":
+                proc = _capture_portal(provider, raw)
+            else:
+                proc = subprocess.run(_capture_command(provider, raw), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=12)
         except subprocess.TimeoutExpired:
             return {"ok": False, "available": True, "error": "screen capture timed out", "provider": provider}
         except OSError as exc:

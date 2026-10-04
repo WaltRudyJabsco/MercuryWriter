@@ -1,3 +1,8 @@
+# 4.55.1 — FABRIC VISION WAYLAND
+
+- Fix `lk vision screen` on modern Linux Wayland sessions by rejecting X11-only capture backends and using the desktop Screenshot portal when native compositor tools are unavailable.
+- Preserve one-shot/foreground-watch semantics and the existing Fabric Vision transport contract.
+
 # 4.55.0 — FABRIC VISION
 
 - Extend `lk vision` with local/remote desktop capture, terminal preview, explicit persistence, and in-memory model analysis.
