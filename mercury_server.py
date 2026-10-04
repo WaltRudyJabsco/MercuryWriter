@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 import json, os, sys, re, math, shutil, subprocess, tempfile, time, hashlib, uuid, threading
 from datetime import datetime
 
-VERSION="1.5.1"
+VERSION="1.5.2"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
