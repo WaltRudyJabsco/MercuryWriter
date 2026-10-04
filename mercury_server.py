@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 import json, os, sys, re, math, shutil, subprocess, tempfile, time, hashlib, uuid, threading
 from datetime import datetime
 
-VERSION="1.5.0"
+VERSION="1.5.1"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
@@ -894,13 +894,15 @@ class Handler(SimpleHTTPRequestHandler):
         # but fall back to any Mercury_Writer*.html file so renaming a release
         # cannot break the launcher.
         if path=="/":
-            preferred = ROOT / "Mercury_Writer_1_4_2.html"
+            # VERSION is authoritative. Old release HTML may remain after an
+            # upgrade, but it must never win merely because it still exists.
+            preferred = ROOT / ("Mercury_Writer_" + VERSION.replace(".","_") + ".html")
             if preferred.exists():
                 return str(preferred)
-            candidates = sorted(ROOT.glob("Mercury_Writer*.html"))
+            candidates = sorted(ROOT.glob("Mercury_Writer*.html"), key=lambda p:p.stat().st_mtime)
             if candidates:
                 return str(candidates[-1])
-            return str(ROOT / "Mercury_Writer_1_5_0.html")
+            return str(preferred)
         return str(ROOT / path.split("?",1)[0].lstrip("/"))
 
     def send_json(self, obj, status=200):

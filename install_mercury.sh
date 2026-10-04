@@ -67,6 +67,9 @@ fi
 
 say "Installing Mercury Writer"
 mkdir -p "$INSTALL_DIR"
+# Release HTML is application code, not user data. Remove stale copies so an
+# older page can never shadow the newly installed UI.
+find "$INSTALL_DIR" -maxdepth 1 -type f -name 'Mercury_Writer*.html' -delete 2>/dev/null || true
 cp "$HTML_FILE" "$INSTALL_DIR/"
 cp "$SERVER_FILE" "$INSTALL_DIR/mercury_server.py"
 cp "$SOURCE_DIR/mercury" "$INSTALL_DIR/mercury"
@@ -212,15 +215,31 @@ else
 fi
 
 LOCAL_URL="http://127.0.0.1:8765"
-if command -v curl >/dev/null 2>&1 && curl -fsS "$LOCAL_URL/api/version" 2>/dev/null | grep -q '"Mercury Writer"'; then
-  echo
-  echo "Mercury Writer is already running at:"
-  echo "  $LOCAL_URL"
-  echo "Reusing the existing server."
-  if command -v xdg-open >/dev/null 2>&1; then xdg-open "$LOCAL_URL" >/dev/null 2>&1 || true
-  elif command -v open >/dev/null 2>&1; then open "$LOCAL_URL" >/dev/null 2>&1 || true
+EXPECTED_VERSION="1.5.1"
+if command -v curl >/dev/null 2>&1; then
+  RUNNING_INFO="$(curl -fsS "$LOCAL_URL/api/version" 2>/dev/null || true)"
+  if printf '%s' "$RUNNING_INFO" | grep -q '"Mercury Writer"'; then
+    if printf '%s' "$RUNNING_INFO" | grep -q "\"version\": \"$EXPECTED_VERSION\"\|\"version\":\"$EXPECTED_VERSION\""; then
+      echo
+      echo "Mercury Writer $EXPECTED_VERSION is already running at:"
+      echo "  $LOCAL_URL"
+      echo "Reusing the existing server."
+      if command -v xdg-open >/dev/null 2>&1; then xdg-open "$LOCAL_URL" >/dev/null 2>&1 || true
+      elif command -v open >/dev/null 2>&1; then open "$LOCAL_URL" >/dev/null 2>&1 || true
+      fi
+      exit 0
+    fi
+    echo
+    echo "An older Mercury Writer server is still running on port 8765."
+    echo "Restarting it so the installed $EXPECTED_VERSION code is actually served."
+    if command -v lsof >/dev/null 2>&1; then
+      PID="$(lsof -t -iTCP:8765 -sTCP:LISTEN 2>/dev/null | head -n1 || true)"
+      [[ -n "$PID" ]] && kill "$PID" 2>/dev/null || true
+    elif command -v fuser >/dev/null 2>&1; then
+      fuser -k 8765/tcp >/dev/null 2>&1 || true
+    fi
+    sleep 0.4
   fi
-  exit 0
 fi
 
 echo

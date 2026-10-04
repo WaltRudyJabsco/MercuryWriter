@@ -1,6 +1,6 @@
  Mercury Writer
 
-Current release: 1.5.0 — Library CLI
+Current release: 1.5.1 — Library CLI
 
 A small, local-first writing studio for novels and long-form fiction.
 
@@ -274,3 +274,15 @@ Moving or renaming a project never changes its stable project ID.
 The launcher also treats a healthy Mercury already listening on port 8765 as
 success and reuses it rather than attempting a second server bind. The visible
 browser version is now read from the server's single runtime VERSION value.
+
+
+ 1.5.1 display and launch repair
+
+The server now derives its root HTML filename from the runtime VERSION value.
+The installer removes obsolete release HTML files from the application folder,
+while leaving manuscript, revision, history, memory, configuration, and Library
+data untouched. The launcher only reuses a server when it is the same installed
+version; an older Mercury process is restarted during launch.
+
+The save-state text was moved out of the crowded top-right toolbar and into the
+bottom status bar.
