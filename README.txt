@@ -1,6 +1,10 @@
+Mercury Writer 1.5.4 — Fabric Reset
+
+Adds mercury reset with a pre-reset safety archive, a reset epoch that prevents stale browser autosaves from resurrecting deleted projects, and mercury doctor for local state inspection. Run mercury reset separately on every Mercury server node when performing a full Fabric wipe.
+
  Mercury Writer
 
-Current release: 1.5.1 — Library CLI
+Current release: 1.5.4 — Trash Recovery
 
 A small, local-first writing studio for novels and long-form fiction.
 
@@ -286,3 +290,16 @@ version; an older Mercury process is restarted during launch.
 
 The save-state text was moved out of the crowded top-right toolbar and into the
 bottom status bar.
+
+### 1.5.2 library UX and documentation
+
+- Mercury Library now exposes manuscript statistics, author, project/revision identity, update time, and local/Fabric availability in a selection-driven detail pane.
+- `mercury library` uses the same richer metadata and keeps the selected authority for the UI session instead of rediscovering the Fabric on every arrow key.
+- Delete means delete the Library project and its local replica together (recoverably). Remove Local means keep the Fabric project but remove this node's offline replica.
+- Browser help and Saving & Recovery text now describe the current crash-buffer, canonical commit, recovery snapshot, Always Local replica, and Shift+Arrow navigation behavior.
+
+Terminology: **Project** is the manuscript; **Library** is the set of projects Mercury knows; **Local** means an offline Documents replica exists on this node; **Always Local** means Mercury maintains that replica; **Fabric Only** means the project is known but has no offline Documents replica here.
+
+### 1.5.4 trash recovery
+
+Deleted Library projects are now recoverable from **Recently Deleted** in the browser or **T · Trash** in `mercury library`. Restore preserves the project identity and revision history and restores a preserved local replica when one was deleted with the project. Permanent deletion is a separate explicit `DELETE` operation.

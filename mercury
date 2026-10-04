@@ -87,10 +87,42 @@ def confirm(stdscr,msg,word="y"):
  v=prompt(stdscr,msg)
  return v==word
 
+
+def trash_ui(stdscr,b):
+ idx=0;message=""
+ while True:
+  code,data=req(b,"/api/library/trash",timeout=2);items=data.get("trash",[]) if code==200 else []
+  idx=max(0,min(idx,max(0,len(items)-1)));h,w=stdscr.getmaxyx();stdscr.erase()
+  stdscr.addnstr(0,0,f"MERCURY {data.get('version','')} · TRASH · {len(items)} deleted project(s)",w-1,curses.A_BOLD)
+  for row,x in enumerate(items[max(0,idx-(h-6)):max(0,idx-(h-6))+max(1,h-5)],2):
+   actual=max(0,idx-(h-6))+row-2;attr=curses.A_REVERSE if actual==idx else curses.A_NORMAL
+   st=x.get("stats",{});line=f"  {x.get('title','Untitled'):<30} {st.get('words',0):>8,} words  {str(x.get('deleted_at',''))[:19]}"
+   stdscr.addnstr(row,0,line,w-1,attr)
+  if message:stdscr.addnstr(h-2,0,message,w-1);message=""
+  stdscr.addnstr(h-1,0,"↑↓ select  r restore  d delete permanently  ←/q back",w-1,curses.A_DIM);stdscr.refresh();key=stdscr.getch()
+  if key in (ord("q"),27,curses.KEY_LEFT,curses.KEY_BACKSPACE,127,8):return
+  if key in (curses.KEY_UP,ord("k")):idx=max(0,idx-1)
+  elif key in (curses.KEY_DOWN,ord("j")):idx=min(max(0,len(items)-1),idx+1)
+  elif items and key==ord("r"):
+   x=items[idx]
+   if confirm(stdscr,f'Restore "{x.get("title","Untitled")}"? type y: '):
+    try:post(b,"/api/library/restore",{"trash_id":x["trash_id"]});message="Project restored"
+    except Exception as e:message=str(e)
+  elif items and key==ord("d"):
+   x=items[idx]
+   if confirm(stdscr,f'PERMANENTLY delete "{x.get("title","Untitled")}"? type DELETE: ',"DELETE"):
+    try:post(b,"/api/library/purge",{"trash_id":x["trash_id"]});message="Deleted permanently"
+    except Exception as e:message=str(e)
+
 def library_ui(stdscr):
  curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message=""
+ b,lib=discover()
+ def refresh():
+  nonlocal lib
+  code,data=req(b,"/api/library",timeout=2)
+  if code==200:lib=data
  while True:
-  b,lib=discover();folders=lib.get("folders",[]);projects=lib.get("projects",[])
+  folders=lib.get("folders",[]);projects=lib.get("projects",[])
   fmap={x["folder_id"]:x for x in folders}
   dirs=[x for x in folders if x.get("parent_id")==folder]
   projs=[x for x in projects if x.get("folder_id")==folder]
@@ -104,15 +136,27 @@ def library_ui(stdscr):
   where=" / ".join(reversed(path)) or "Library"
   stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects · {lib.get('node_name','')}",w-1,curses.A_BOLD)
   stdscr.addnstr(1,0,f"{b}  ·  filter: {query or '—'}",w-1)
+  pane=(w>=96);split=max(48,min(66,w//2)) if pane else w
+  listw=split-2 if pane else w-1
   top=max(0,idx-(h-7));visible=items[top:top+max(1,h-7)]
   for row,(kind,x) in enumerate(visible,3):
    selected=(top+row-3)==idx;attr=curses.A_REVERSE if selected else curses.A_NORMAL
    if kind=="dir":line=f"  {x['name']}/"
    else:
-    loc="LOCAL" if x.get("local") else "REMOTE"
-    line=f"  {x.get('title','Untitled'):<34} {loc:<6} {x.get('availability','cache'):<12} {x.get('project_id','')[:8]}"
-   stdscr.addnstr(row,0,line,w-1,attr)
-  footer="↑↓ select  Enter enter/edit  ←/Backspace up  n project  N directory  r rename  m move  l local  x remove-local  d delete  / filter  o browser  q quit"
+    loc="LOCAL" if x.get("local") else "FABRIC"
+    line=f"  {x.get('title','Untitled'):<28} {loc:<6} {x.get('project_id','')[:8]}"
+   stdscr.addnstr(row,0,line,listw,attr)
+  if pane and items:
+   kind,x=items[idx];col=split+1
+   if kind=="project":
+    st=x.get("stats",{});policy=x.get("availability","cache");rev=x.get("revision_id","")[:16]
+    detail=[x.get("title","Untitled"),"",f"{st.get('words',0):,} words · {st.get('pages',0)} pages",f"{st.get('chapters',0)} chapters · {st.get('scenes',0)} scenes",""]
+    if x.get("author"):detail += [f"Author   {x.get('author')}",""]
+    detail += ["AVAILABILITY",f"{'LOCAL REPLICA' if x.get('local') else 'FABRIC ONLY'}",f"Policy   {policy}",f"Node     {lib.get('node_name','')}","","IDENTITY",f"Project  {x.get('project_id','')[:12]}",f"Revision {rev or '—'}","",f"Updated  {x.get('modified') or x.get('updated_at') or '—'}"]
+   else:
+    childp=[p for p in projects if p.get("folder_id")==x.get("folder_id")];detail=[x.get("name","")+"/","",f"{len(childp)} projects",f"{sum((p.get('stats') or {}).get('words',0) for p in childp):,} words",f"{sum(1 for p in childp if p.get('local'))} local replicas"]
+   for n,line in enumerate(detail[:max(0,h-5)],3):stdscr.addnstr(n,col,str(line),max(1,w-col-1),curses.A_BOLD if n==3 else curses.A_NORMAL)
+  footer="↑↓ select  Enter edit  ← up  n project  N dir  r rename  m move  l local  x remove-local  d delete  T trash  / filter  o browser  q quit"
   stdscr.addnstr(h-1,0,footer,w-1,curses.A_DIM)
   if message:stdscr.addnstr(h-2,0,message,w-1);message=""
   stdscr.refresh();key=stdscr.getch()
@@ -128,15 +172,16 @@ def library_ui(stdscr):
   elif key==ord("/"):query=prompt(stdscr,"Filter:");idx=0
   elif key==ord("c"):query=""
   elif key==ord("o"):webbrowser.open(b);message="Opened Mercury Writer in browser"
+  elif key==ord("T"):trash_ui(stdscr,b);refresh();message="Returned from Trash"
   elif key==ord("n"):
    name=prompt(stdscr,"New project name:")
    if name:
-    try:post(b,"/api/library/new",{"name":name,"folder_id":folder});message="Project created"
+    try:post(b,"/api/library/new",{"name":name,"folder_id":folder});message="Project created";refresh()
     except Exception as e:message=str(e)
   elif key==ord("N"):
    name=prompt(stdscr,"New directory name:")
    if name:
-    try:post(b,"/api/library/folder/new",{"name":name,"parent_id":folder});message="Directory created"
+    try:post(b,"/api/library/folder/new",{"name":name,"parent_id":folder});message="Directory created";refresh()
     except Exception as e:message=str(e)
   elif items and key in (10,13,curses.KEY_ENTER):
    kind,x=items[idx]
@@ -151,7 +196,7 @@ def library_ui(stdscr):
    if name:
     try:
      post(b,"/api/library/folder/rename" if kind=="dir" else "/api/library/rename",
-          {"folder_id":x.get("folder_id"),"project_id":x.get("project_id"),"name":name});message="Renamed"
+          {"folder_id":x.get("folder_id"),"project_id":x.get("project_id"),"name":name});message="Renamed";refresh()
     except Exception as e:message=str(e)
   elif items and key==ord("m") and items[idx][0]=="project":
    x=items[idx][1];choices=[("(Library root)",None)]+[(f["name"],f["folder_id"]) for f in folders]
@@ -161,28 +206,30 @@ def library_ui(stdscr):
     hits=[fid for nm,fid in choices if nm.casefold()==name.casefold()]
     if not hits:message="Directory not found";continue
     dest=hits[0]
-   try:post(b,"/api/library/move",{"project_id":x["project_id"],"folder_id":dest});message="Moved"
+   try:post(b,"/api/library/move",{"project_id":x["project_id"],"folder_id":dest});message="Moved";refresh()
    except Exception as e:message=str(e)
   elif items and key==ord("l") and items[idx][0]=="project":
-   try:post(b,"/api/library/make-local",{"project_id":items[idx][1]["project_id"]});message="Local replica ready"
+   try:post(b,"/api/library/make-local",{"project_id":items[idx][1]["project_id"]});message="Local replica ready";refresh()
    except Exception as e:message=str(e)
   elif items and key==ord("x") and items[idx][0]=="project":
    x=items[idx][1]
    if confirm(stdscr,f'Remove local copy of "{x["title"]}"? type y: '):
-    try:post(b,"/api/library/remove-local",{"project_id":x["project_id"]});message="Local copy removed; Library project kept"
+    try:post(b,"/api/library/remove-local",{"project_id":x["project_id"]});message="Local copy removed; Library project kept";refresh()
     except Exception as e:message=str(e)
   elif items and key==ord("d"):
    kind,x=items[idx]
    if kind=="dir":
     if confirm(stdscr,f'Delete directory "{x["name"]}"? type y: '):
-     try:post(b,"/api/library/folder/delete",{"folder_id":x["folder_id"]});message="Directory deleted"
+     try:post(b,"/api/library/folder/delete",{"folder_id":x["folder_id"]});message="Directory deleted";refresh()
      except Exception as e:message=str(e)
    else:
-    if confirm(stdscr,f'Delete "{x["title"]}"? type DELETE: ',"DELETE"):
-     try:post(b,"/api/library/delete",{"project_id":x["project_id"]});message="Project moved to recoverable trash"
+    if confirm(stdscr,f'Delete project + local replica (if any) "{x["title"]}"? type DELETE: ',"DELETE"):
+     try:post(b,"/api/library/delete",{"project_id":x["project_id"]});message="Project + local replica moved to recoverable trash";refresh()
      except Exception as e:message=str(e)
 
 def library():curses.wrapper(library_ui)
+def trash():
+ b,_=discover();curses.wrapper(lambda stdscr:trash_ui(stdscr,b))
 def remove_local(name):
  b,l=discover();p=pick(l,name)
  if input(f'Remove local replica of "{p["title"]}"? [y/N] ').strip().lower()=="y":post(b,"/api/library/remove-local",{"project_id":p["project_id"]});print("REMOVED LOCAL · Library project kept")
@@ -194,12 +241,56 @@ def airplane():
  for f in fs:print(" ✓ LOCAL ·",f.parent.name)
  print(f"{len(fs)} local project(s) available offline")
 
+def reset_local():
+ try:code,status=req(LOCAL,"/api/reset/status",timeout=2)
+ except Exception as e:raise SystemExit("Mercury: local server is not running on 127.0.0.1:8765")
+ if code!=200:raise SystemExit("Mercury: local reset status unavailable")
+ print("MERCURY FACTORY RESET · LOCAL NODE")
+ print(f"Version          {status.get('version','—')}")
+ print(f"Fabric epoch     {status.get('epoch','—')}")
+ print(f"Library projects {status.get('library_projects',0)}")
+ print(f"History files    {status.get('history_files',0)}")
+ print(f"Trash files      {status.get('trash_files',0)}")
+ print(f"Document files   {status.get('document_files',0)}")
+ print("\nThis creates a pre-reset ZIP, then clears Mercury-managed Library/state/history/trash/workspaces/documents on THIS node.")
+ print("Git/source, the installed app, config, and exports outside Mercury-managed storage are not removed.")
+ if input("\nType RESET MERCURY to continue: ").strip()!="RESET MERCURY":print("Cancelled");return
+ code,d=req(LOCAL,"/api/reset",{"confirm":"RESET MERCURY"},120)
+ if code>=400:raise SystemExit("Mercury reset failed: "+d.get("error","unknown error"))
+ shutil.rmtree(Path.home()/".cache/mercury",ignore_errors=True)
+ print("\nRESET COMPLETE")
+ print("Backup:",d.get("backup"))
+ print("New epoch:",d.get("epoch"))
+ print("Run this command on each Mercury server node. Browsers will discard pre-reset manuscript autosave when they next connect.")
+
+def doctor():
+ print("MERCURY DOCTOR · LOCAL NODE")
+ try:
+  code,d=req(LOCAL,"/api/reset/status",timeout=2)
+  if code!=200:raise RuntimeError(d.get("error","status unavailable"))
+  print(f"Running version   {d.get('version','—')}")
+  print(f"Fabric epoch      {d.get('epoch','—')}")
+  print(f"Library projects  {d.get('library_projects',0)}")
+  print(f"Canonical state   {'present' if d.get('canonical') else 'empty'}")
+  print(f"Recovery history  {d.get('history_files',0)} files")
+  print(f"Revisions         {d.get('revision_files',0)} files")
+  print(f"Conflicts         {d.get('conflict_files',0)} files")
+  print(f"Trash             {d.get('trash_files',0)} files")
+  print(f"Workspace         {d.get('workspace_files',0)} files")
+  print(f"Documents         {d.get('document_files',0)} files")
+  clean=(d.get('library_projects',0)==0 and not d.get('canonical') and d.get('history_files',0)==0 and d.get('trash_files',0)==0 and d.get('workspace_files',0)==0 and d.get('document_files',0)==0)
+  print("State             "+("CLEAN" if clean else "ACTIVE"))
+ except Exception as e:print("Running server    unavailable ·",e)
+
 a=sys.argv[1:]
 if not a or a[0] in ("library","projects","ls"):library()
 elif a[0]=="status":
  b,l=discover();print(f"MERCURY {l.get('version','')} · {len(l.get('projects',[]))} projects · {l.get('node_name')} · {b}")
 elif a[0]=="edit":edit(a[1] if len(a)>1 else None,a[2] if len(a)>2 else None)
+elif a[0]=="trash":trash()
 elif a[0]=="remove-local":remove_local(a[1] if len(a)>1 else None)
 elif a[0]=="delete":delete_project(a[1] if len(a)>1 else None)
+elif a[0]=="reset":reset_local()
+elif a==["doctor"]:doctor()
 elif a[:2]==["doctor","airplane"]:airplane()
-else:print('usage: mercury [library] | status | edit ["Project"] [scene] | remove-local ["Project"] | delete ["Project"] | doctor airplane')
+else:print('usage: mercury [library] | trash | status | edit ["Project"] [scene] | remove-local ["Project"] | delete ["Project"] | reset | doctor | doctor airplane')

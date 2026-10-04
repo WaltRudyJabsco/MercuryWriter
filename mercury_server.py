@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 import json, os, sys, re, math, shutil, subprocess, tempfile, time, hashlib, uuid, threading
 from datetime import datetime
 
-VERSION="1.5.2"
+VERSION="1.5.4"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
@@ -42,8 +42,68 @@ WORKSPACE_ROOT=ROOT / "workspace"
 STATE_LOCK=threading.RLock()
 LIBRARY_DIR=ROOT/"library"; LIBRARY_INDEX=LIBRARY_DIR/"library.json"
 CONFIG_FILE=ROOT/"mercury_config.json"; DEFAULT_DOCUMENTS_DIR=Path.home()/"Mercury Writer Documents"
+EPOCH_FILE=ROOT/"mercury_epoch.json"
+RESET_BACKUP_DIR=Path.home()/"Mercury Writer Backups"
 
 
+
+
+def _fabric_epoch():
+    """Reset generation. Legacy is intentionally stable until the first explicit reset."""
+    if not EPOCH_FILE.exists(): return "legacy"
+    try:return str(json.loads(EPOCH_FILE.read_text(encoding="utf-8")).get("epoch") or "legacy")
+    except Exception:return "legacy"
+
+def _reset_status():
+    def count_files(root):
+        try:return sum(1 for p in root.rglob("*") if p.is_file()) if root.exists() else 0
+        except Exception:return 0
+    docs=Path(_mcfg()["documents_dir"]) if "_mcfg" in globals() else DEFAULT_DOCUMENTS_DIR
+    return {
+        "version":VERSION,"epoch":_fabric_epoch(),
+        "library_projects":len(_llib().get("projects",[])) if "_llib" in globals() else 0,
+        "canonical":CANONICAL_PROJECT.exists(),"history_files":count_files(HISTORY_DIR),
+        "revision_files":count_files(REVISION_DIR),"conflict_files":count_files(CONFLICT_DIR),
+        "trash_files":count_files(LIBRARY_DIR/"trash"),"workspace_files":count_files(WORKSPACE_ROOT),
+        "document_files":count_files(docs),"memory":MEMORY_FILE.exists(),
+    }
+
+def _factory_reset():
+    """Archive Mercury-managed state, then start a new reset generation.
+
+    The epoch is written last. Browsers use it to reject pre-reset localStorage so an
+    old tab cannot silently republish a deleted manuscript.
+    """
+    with STATE_LOCK:
+        stamp=datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+        RESET_BACKUP_DIR.mkdir(parents=True,exist_ok=True)
+        stage=Path(tempfile.mkdtemp(prefix="mercury-reset-"))
+        payload=stage/f"Mercury-Pre-Reset-{stamp}"
+        payload.mkdir(parents=True,exist_ok=True)
+        docs=Path(_mcfg()["documents_dir"])
+        managed=[("history",HISTORY_DIR),("state",STATE_DIR),("workspace",WORKSPACE_ROOT),("library",LIBRARY_DIR),("documents",docs)]
+        for name,path in managed:
+            if path.exists():shutil.copytree(path,payload/name,dirs_exist_ok=True)
+        for name,path in (("mercury_memory.json",MEMORY_FILE),("mercury_config.json",CONFIG_FILE)):
+            if path.exists():shutil.copy2(path,payload/name)
+        (payload/"reset-manifest.json").write_text(json.dumps({"version":VERSION,"previous_epoch":_fabric_epoch(),"created_at":datetime.now().astimezone().isoformat(timespec="seconds")},indent=2),encoding="utf-8")
+        archive=shutil.make_archive(str(RESET_BACKUP_DIR/f"Mercury-Pre-Reset-{stamp}"),"zip",stage,payload.name)
+        shutil.rmtree(stage,ignore_errors=True)
+        # Clear only Mercury-managed mutable state. Application/source/config survive.
+        for path in (HISTORY_DIR,STATE_DIR,WORKSPACE_ROOT,LIBRARY_DIR):shutil.rmtree(path,ignore_errors=True)
+        if MEMORY_FILE.exists():MEMORY_FILE.unlink()
+        if docs.exists():
+            for child in list(docs.iterdir()):
+                if child.is_dir():shutil.rmtree(child,ignore_errors=True)
+                else:
+                    try:child.unlink()
+                    except FileNotFoundError:pass
+        docs.mkdir(parents=True,exist_ok=True)
+        new_epoch=uuid.uuid4().hex
+        _atomic_json(EPOCH_FILE,{"epoch":new_epoch,"reset_at":datetime.now().astimezone().isoformat(timespec="seconds"),"backup":archive})
+        LIBRARY_DIR.mkdir(parents=True,exist_ok=True)
+        _atomic_json(LIBRARY_INDEX,{"projects":[],"folders":[]})
+        return {"ok":True,"epoch":new_epoch,"backup":archive,"status":_reset_status()}
 
 def _nested_value(obj, paths):
     for path in paths:
@@ -348,9 +408,77 @@ def _delete_library_project(pid):
  lib["projects"]=[x for x in lib.get("projects",[]) if x.get("project_id")!=pid]
  _atomic_json(LIBRARY_INDEX,lib)
  tomb={"project_id":pid,"title":item.get("title"),"deleted_at":datetime.now().astimezone().isoformat(timespec="seconds"),
-       "library_trash":str(trash),"documents_trash":doc_trash}
+       "library_trash":str(trash),"documents_trash":doc_trash,"library_item":dict(item)}
  _atomic_json(LIBRARY_DIR/"trash"/f"{stamp}-{pid}.tombstone.json",tomb)
  return {"ok":True,"deleted":tomb}
+
+def _trash_entries():
+ root=LIBRARY_DIR/"trash";out=[]
+ if not root.exists():return out
+ for f in sorted(root.glob("*.tombstone.json"),key=lambda x:x.stat().st_mtime,reverse=True):
+  try:
+   t=json.loads(f.read_text());t["tombstone_path"]=str(f);t["trash_id"]=f.name[:-len(".tombstone.json")]
+   lp=Path(t.get("library_trash") or "")
+   p=None
+   if lp.exists():
+    try:p=json.loads((lp/"project.mercury").read_text())
+    except Exception:pass
+   if p:
+    t["title"]=p.get("title") or t.get("title") or "Untitled"
+    t["author"]=p.get("author","");t["stats"]=_project_library_stats(p)
+   else:t.setdefault("stats",{"chapters":0,"scenes":0,"words":0,"pages":0})
+   t["library_available"]=lp.exists();t["local_replica_count"]=sum(1 for x in t.get("documents_trash",[]) if Path(x).exists())
+   out.append(t)
+  except Exception:pass
+ return out
+
+def _restore_library_project(trash_id):
+ t=next((x for x in _trash_entries() if x.get("trash_id")==trash_id),None)
+ if not t:raise FileNotFoundError("Deleted project not found")
+ pid=t.get("project_id");lib=_llib()
+ if any(x.get("project_id")==pid for x in lib.get("projects",[])):raise FileExistsError("Project is already present in the Mercury Library")
+ src=Path(t.get("library_trash") or "")
+ if not src.exists():raise FileNotFoundError("Deleted project data is no longer available")
+ dst=LIBRARY_DIR/"projects"/str(pid);dst.parent.mkdir(parents=True,exist_ok=True)
+ if dst.exists():raise FileExistsError("A project directory with this identity already exists")
+ shutil.move(str(src),str(dst))
+ restored_docs=[]
+ try:
+  for raw in t.get("documents_trash",[]):
+   old=Path(raw)
+   if not old.exists():continue
+   # Prefer the original project title; identity metadata prevents accidental merging.
+   project=_lproj(pid) or {};name=re.sub(r"[^A-Za-z0-9._ -]+","",project.get("title") or t.get("title") or "Untitled").strip() or "Untitled"
+   target=Path(_mcfg()["documents_dir"])/name
+   if target.exists():target=target.parent/f"{name} [{str(pid)[:8]}]"
+   shutil.move(str(old),str(target));restored_docs.append(str(target))
+  project=_lproj(pid)
+  if not project:raise FileNotFoundError("Restored project is unreadable")
+  item=dict(t.get("library_item") or {})
+  item.update({"project_id":pid,"title":project.get("title",t.get("title") or "Untitled"),"author":project.get("author",item.get("author","") or "")})
+  rev=_lrev(pid)
+  if rev:item.update({"revision_id":rev.get("revision_id"),"content_sha256":rev.get("content_sha256"),"updated_at":rev.get("created_at")})
+  if restored_docs:item["availability"]="always-local"
+  else:item.setdefault("availability","fabric-only")
+  lib.setdefault("projects",[]).append(item);_atomic_json(LIBRARY_INDEX,lib)
+  Path(t["tombstone_path"]).unlink(missing_ok=True)
+  return {"ok":True,"project_id":pid,"title":item["title"],"restored_documents":restored_docs,"availability":item.get("availability")}
+ except Exception:
+  # If metadata restoration fails, put the canonical directory back in trash rather than strand it.
+  if dst.exists() and not src.exists():shutil.move(str(dst),str(src))
+  raise
+
+def _purge_deleted_project(trash_id):
+ t=next((x for x in _trash_entries() if x.get("trash_id")==trash_id),None)
+ if not t:raise FileNotFoundError("Deleted project not found")
+ lp=Path(t.get("library_trash") or "")
+ if lp.exists():shutil.rmtree(lp)
+ for raw in t.get("documents_trash",[]):
+  q=Path(raw)
+  if q.is_dir():shutil.rmtree(q)
+  elif q.exists():q.unlink()
+ Path(t["tombstone_path"]).unlink(missing_ok=True)
+ return {"ok":True,"purged":trash_id}
 
 def _folder_list():
  lib=_llib();return lib.get("folders",[]) if isinstance(lib.get("folders",[]),list) else []
@@ -400,9 +528,27 @@ def _project_make_local(pid):
  if p and rev:_mirror_docs(p,rev)
  return {"ok":True,"project_id":pid,"availability":"always-local"}
 
+def _project_library_stats(p):
+ chapters=p.get("chapters",[]) if isinstance(p,dict) else []
+ scenes=[scene for chapter in chapters for scene in chapter.get("scenes",[])]
+ words=sum(len(re.findall(r"\b[\w’'-]+\b",scene.get("text","") or "",re.UNICODE)) for scene in scenes)
+ try:words_per_page=max(1,int((p.get("settings") or {}).get("wordsPerPage") or 250))
+ except Exception:words_per_page=250
+ return {"chapters":len(chapters),"scenes":len(scenes),"words":words,"pages":max(1,(words+words_per_page-1)//words_per_page) if words else 0}
+
 def _lsummary():
- c=_mcfg();projects=_library_display_projects()
- for x in projects:x["local"]=_lf(x["project_id"],"project.mercury").exists()
+ c=_mcfg();projects=[]
+ for raw in _library_display_projects():
+  x=dict(raw);pid=x.get("project_id");p=_lproj(pid)
+  replicas=_documents_replica_dirs(pid)
+  x["local"]=bool(replicas)
+  x["canonical_available"]=bool(p)
+  x["local_replica_count"]=len(replicas)
+  x["stats"]=_project_library_stats(p) if p else {"chapters":0,"scenes":0,"words":0,"pages":0}
+  if p:
+   x["author"]=p.get("author",x.get("author","") or "")
+   x["modified"]=p.get("modified") or p.get("updated") or x.get("updated_at")
+  projects.append(x)
  return {"format":"mercury-library-1","version":VERSION,"node_name":c["node_name"],"documents_dir":c["documents_dir"],"folders":_folder_list(),"projects":projects}
 def _lbundle(pid):
  p=_lproj(pid)
@@ -924,8 +1070,16 @@ class Handler(SimpleHTTPRequestHandler):
         parsed=urlparse(self.path)
         if parsed.path=="/api/version":
             self.send_json({"name":"Mercury Writer","version":VERSION});return
+        if parsed.path=="/api/reset/status":
+            try:self.send_json(_reset_status())
+            except Exception as e:self.send_json({"error":str(e)},500)
+            return
         if parsed.path=="/api/library":
             try:self.send_json(_lsummary())
+            except Exception as e:self.send_json({"error":str(e)},500)
+            return
+        if parsed.path=="/api/library/trash":
+            try:self.send_json({"version":VERSION,"trash":_trash_entries()})
             except Exception as e:self.send_json({"error":str(e)},500)
             return
         if parsed.path=="/api/library/project":
@@ -980,6 +1134,11 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             n=int(self.headers.get("Content-Length","0"))
             body=json.loads(self.rfile.read(n) or b"{}")
+            if self.path=="/api/reset":
+                if body.get("confirm")!="RESET MERCURY":self.send_json({"error":"Confirmation must be RESET MERCURY"},400);return
+                try:self.send_json(_factory_reset())
+                except Exception as e:self.send_json({"error":str(e)},500)
+                return
             if self.path=="/api/library/new":
                 try:r=_project_new(body.get("name"),body.get("folder_id"))
                 except Exception as e:self.send_json({"error":str(e)},400);return
@@ -1023,6 +1182,16 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(r);return
             if self.path=="/api/library/delete":
                 try:r=_delete_library_project(body.get("project_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                self.send_json(r);return
+            if self.path=="/api/library/restore":
+                try:r=_restore_library_project(body.get("trash_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                except FileExistsError as e:self.send_json({"error":str(e)},409);return
+                except Exception as e:self.send_json({"error":str(e)},400);return
+                self.send_json(r);return
+            if self.path=="/api/library/purge":
+                try:r=_purge_deleted_project(body.get("trash_id"))
                 except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
                 self.send_json(r);return
             if self.path=="/api/library/repair":
