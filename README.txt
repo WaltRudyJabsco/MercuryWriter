@@ -1,5 +1,7 @@
  Mercury Writer
 
+Current release: 1.5.0 — Library CLI
+
 A small, local-first writing studio for novels and long-form fiction.
 
 Mercury Writer is built around a simple idea: the manuscript should remain at
@@ -241,3 +243,34 @@ still be small, understandable, local, and owned by the person doing the
 writing.
 
 The manuscript is the product. The software should get out of its way.
+
+
+ Interactive Library CLI
+
+mercury or mercury library now opens the project-management surface rather
+than printing a passive report. It supports project and directory creation,
+navigation, filtering, rename, move, local/offline policy, recoverable deletion,
+browser launch, and direct Neovim editing.
+
+text
+↑↓       select
+Enter    enter directory / edit project
+←        parent directory
+n        new project
+N        new directory
+r        rename
+m        move project
+l        make local
+x        remove local copy
+d        recoverable delete
+/        filter
+o        open Mercury Writer in browser
+q        quit
+
+
+Library directories are organizational metadata, not filesystem identity.
+Moving or renaming a project never changes its stable project ID.
+
+The launcher also treats a healthy Mercury already listening on port 8765 as
+success and reuses it rather than attempting a second server bind. The visible
+browser version is now read from the server's single runtime VERSION value.

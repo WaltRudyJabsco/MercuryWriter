@@ -20,6 +20,7 @@ from urllib.parse import urlparse, parse_qs
 import json, os, sys, re, math, shutil, subprocess, tempfile, time, hashlib, uuid, threading
 from datetime import datetime
 
+VERSION="1.5.0"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
@@ -351,10 +352,58 @@ def _delete_library_project(pid):
  _atomic_json(LIBRARY_DIR/"trash"/f"{stamp}-{pid}.tombstone.json",tomb)
  return {"ok":True,"deleted":tomb}
 
+def _folder_list():
+ lib=_llib();return lib.get("folders",[]) if isinstance(lib.get("folders",[]),list) else []
+def _folder_new(name,parent_id=None):
+ name=str(name or "").strip()
+ if not name:raise ValueError("Directory name required")
+ lib=_llib();folders=lib.setdefault("folders",[])
+ if parent_id and not any(x.get("folder_id")==parent_id for x in folders):raise FileNotFoundError("Parent directory not found")
+ f={"folder_id":uuid.uuid4().hex,"name":name,"parent_id":parent_id};folders.append(f);_atomic_json(LIBRARY_INDEX,lib);return f
+def _folder_rename(fid,name):
+ name=str(name or "").strip()
+ if not name:raise ValueError("Directory name required")
+ lib=_llib();f=next((x for x in lib.setdefault("folders",[]) if x.get("folder_id")==fid),None)
+ if not f:raise FileNotFoundError("Directory not found")
+ f["name"]=name;_atomic_json(LIBRARY_INDEX,lib);return f
+def _folder_delete(fid):
+ lib=_llib();folders=lib.setdefault("folders",[])
+ if any(x.get("parent_id")==fid for x in folders):raise ValueError("Directory is not empty")
+ if any(x.get("folder_id")==fid for x in lib.get("projects",[])):raise ValueError("Directory contains projects")
+ before=len(folders);lib["folders"]=[x for x in folders if x.get("folder_id")!=fid]
+ if len(lib["folders"])==before:raise FileNotFoundError("Directory not found")
+ _atomic_json(LIBRARY_INDEX,lib);return {"ok":True}
+def _project_move(pid,fid):
+ lib=_llib();p=next((x for x in lib.get("projects",[]) if x.get("project_id")==pid),None)
+ if not p:raise FileNotFoundError("Project not found")
+ if fid and not any(x.get("folder_id")==fid for x in lib.get("folders",[])):raise FileNotFoundError("Directory not found")
+ p["folder_id"]=fid;_atomic_json(LIBRARY_INDEX,lib);return {"ok":True}
+def _project_rename(pid,name):
+ p=_lproj(pid)
+ if not p:raise FileNotFoundError("Project not found")
+ name=str(name or "").strip()
+ if not name:raise ValueError("Project name required")
+ p["title"]=name;p["modified"]=datetime.now().isoformat(timespec="seconds")
+ return _lcommit(p,(_lrev(pid) or {}).get("revision_id"),"library-rename")
+def _project_new(name,folder_id=None):
+ now=datetime.now().astimezone().isoformat(timespec="seconds")
+ p={"version":1,"title":str(name or "Untitled Novel").strip() or "Untitled Novel","author":"","targetWords":90000,"wordsPerPage":300,
+    "created":now,"modified":now,"chapters":[{"id":uuid.uuid4().hex,"title":"Chapter 1","notes":"","scenes":[{"id":uuid.uuid4().hex,"title":"Scene 1","target":1500,"notes":"","text":""}]}]}
+ r=_lcommit(p,None,"library-new")
+ if folder_id:_project_move(r["project_id"],folder_id)
+ return r
+def _project_make_local(pid):
+ lib=_llib();item=next((x for x in lib.get("projects",[]) if x.get("project_id")==pid),None)
+ if not item:raise FileNotFoundError("Project not found")
+ p=_lproj(pid);rev=_lrev(pid)
+ item["availability"]="always-local";_atomic_json(LIBRARY_INDEX,lib)
+ if p and rev:_mirror_docs(p,rev)
+ return {"ok":True,"project_id":pid,"availability":"always-local"}
+
 def _lsummary():
  c=_mcfg();projects=_library_display_projects()
  for x in projects:x["local"]=_lf(x["project_id"],"project.mercury").exists()
- return {"format":"mercury-library-1","node_name":c["node_name"],"documents_dir":c["documents_dir"],"projects":projects}
+ return {"format":"mercury-library-1","version":VERSION,"node_name":c["node_name"],"documents_dir":c["documents_dir"],"folders":_folder_list(),"projects":projects}
 def _lbundle(pid):
  p=_lproj(pid)
  if not p:raise FileNotFoundError("Project not found")
@@ -851,7 +900,7 @@ class Handler(SimpleHTTPRequestHandler):
             candidates = sorted(ROOT.glob("Mercury_Writer*.html"))
             if candidates:
                 return str(candidates[-1])
-            return str(ROOT / "Mercury_Writer_1_4_2.html")
+            return str(ROOT / "Mercury_Writer_1_5_0.html")
         return str(ROOT / path.split("?",1)[0].lstrip("/"))
 
     def send_json(self, obj, status=200):
@@ -871,6 +920,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed=urlparse(self.path)
+        if parsed.path=="/api/version":
+            self.send_json({"name":"Mercury Writer","version":VERSION});return
         if parsed.path=="/api/library":
             try:self.send_json(_lsummary())
             except Exception as e:self.send_json({"error":str(e)},500)
@@ -927,6 +978,37 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             n=int(self.headers.get("Content-Length","0"))
             body=json.loads(self.rfile.read(n) or b"{}")
+            if self.path=="/api/library/new":
+                try:r=_project_new(body.get("name"),body.get("folder_id"))
+                except Exception as e:self.send_json({"error":str(e)},400);return
+                self.send_json(r);return
+            if self.path=="/api/library/rename":
+                try:r=_project_rename(body.get("project_id"),body.get("name"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                except Exception as e:self.send_json({"error":str(e)},400);return
+                self.send_json(r,409 if r.get("conflict") else 200);return
+            if self.path=="/api/library/move":
+                try:r=_project_move(body.get("project_id"),body.get("folder_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                self.send_json(r);return
+            if self.path=="/api/library/make-local":
+                try:r=_project_make_local(body.get("project_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                self.send_json(r);return
+            if self.path=="/api/library/folder/new":
+                try:r=_folder_new(body.get("name"),body.get("parent_id"))
+                except Exception as e:self.send_json({"error":str(e)},400);return
+                self.send_json(r);return
+            if self.path=="/api/library/folder/rename":
+                try:r=_folder_rename(body.get("folder_id"),body.get("name"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                except Exception as e:self.send_json({"error":str(e)},400);return
+                self.send_json(r);return
+            if self.path=="/api/library/folder/delete":
+                try:r=_folder_delete(body.get("folder_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                except Exception as e:self.send_json({"error":str(e)},400);return
+                self.send_json(r);return
             if self.path=="/api/library/commit":
                 r=_lcommit(body.get("project"),body.get("parent_revision"),body.get("source") or "browser");self.send_json(r,409 if r.get("conflict") else 200);return
             if self.path=="/api/library/apply":

@@ -211,6 +211,18 @@ else
   echo "Local Ollama: not reachable (Mercury will also try configured remote AI hosts)"
 fi
 
+LOCAL_URL="http://127.0.0.1:8765"
+if command -v curl >/dev/null 2>&1 && curl -fsS "$LOCAL_URL/api/version" 2>/dev/null | grep -q '"Mercury Writer"'; then
+  echo
+  echo "Mercury Writer is already running at:"
+  echo "  $LOCAL_URL"
+  echo "Reusing the existing server."
+  if command -v xdg-open >/dev/null 2>&1; then xdg-open "$LOCAL_URL" >/dev/null 2>&1 || true
+  elif command -v open >/dev/null 2>&1; then open "$LOCAL_URL" >/dev/null 2>&1 || true
+  fi
+  exit 0
+fi
+
 echo
 echo "Starting Mercury Writer..."
 echo "Leave this terminal open while Mercury is running."
