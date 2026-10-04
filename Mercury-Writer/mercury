@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+import curses,json,os,re,shutil,subprocess,sys,urllib.request,urllib.error,urllib.parse,webbrowser
+from pathlib import Path
+LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json";KNOWN=["https://3090.tailb77b68.ts.net"]
+
+def req(b,p,x=None,timeout=5):
+ data=None if x is None else json.dumps(x).encode()
+ q=urllib.request.Request(b.rstrip("/")+p,data=data,headers={"Content-Type":"application/json"})
+ try:
+  with urllib.request.urlopen(q,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+ except urllib.error.HTTPError as e:
+  try:return e.code,json.loads(e.read().decode())
+  except:return e.code,{"error":str(e)}
+
+def discover():
+ cs=[os.environ.get("MERCURY_URL"),LOCAL]+KNOWN
+ if CLIENT.exists():
+  try:
+   d=json.loads(CLIENT.read_text());cs=[d.get("url")]+d.get("servers",[])+cs
+  except:pass
+ found=[]
+ for b in dict.fromkeys(x.rstrip("/") for x in cs if x):
+  try:
+   code,d=req(b,"/api/library",timeout=1.2)
+   if code==200:found.append((len(d.get("projects",[])),b,d))
+  except:pass
+ if not found:raise SystemExit("Mercury: no local/Fabric library reachable. Check ~/Mercury Writer Documents for offline copies.")
+ return sorted(found,reverse=True)[0][1:]
+
+def post(b,path,payload):
+ code,d=req(b,path,payload,20)
+ if code>=400:raise RuntimeError(d.get("error","Mercury library operation failed"))
+ return d
+
+def pick(lib,name=None):
+ ps=lib["projects"]
+ if name:
+  h=[p for p in ps if name.lower() in p.get("title","").lower()]
+  if len(h)==1:return h[0]
+  raise SystemExit("Mercury: project not uniquely found.")
+ if len(ps)==1:return ps[0]
+ for i,p in enumerate(ps,1):print(f"{i:2}  {p['title']:<30} {p.get('availability','cache'):<12} {p.get('project_id','')[:8]}")
+ return ps[int(input("Project: "))-1]
+
+def slug(x):return (re.sub(r"[^A-Za-z0-9._ -]+","",x).strip().replace(" ","-") or "Untitled")[:80]
+def parse(f):
+ raw=f.read_text();sid=None;t=f.stem
+ if raw.startswith("---\n") and (e:=raw.find("\n---\n",4))>=0:
+  for line in raw[4:e].splitlines():
+   if ":" in line:
+    k,v=line.split(":",1)
+    if k.strip()=="mercury_scene_id":sid=v.strip()
+    if k.strip()=="title":t=v.strip()
+  return sid,t,raw[e+5:]
+ return sid,t,raw
+
+def edit_project(b,p,scene=None):
+ pid=p["project_id"];code,x=req(b,"/api/library/bundle?id="+urllib.parse.quote(pid))
+ if code!=200:raise RuntimeError(x.get("error","Could not load project"))
+ root=Path.home()/".cache/mercury/workspaces"/pid;shutil.rmtree(root,ignore_errors=True);man=root/"manuscript";man.mkdir(parents=True);files=[]
+ for sc in x["scenes"]:
+  d=man/f"{sc['chapter_index']+1:02d}-{slug(sc['chapter_title'])}";d.mkdir(exist_ok=True)
+  f=d/f"{sc['scene_index']+1:02d}-{slug(sc['scene_title'])}.md"
+  f.write_text(f"---\nmercury_scene_id: {sc['scene_id']}\ntitle: {sc['scene_title']}\n---\n"+sc["text"]);files.append(f)
+ target=man;hits=[f for f in files if scene and scene.lower() in f.stem.lower()]
+ if len(hits)==1:target=hits[0]
+ ed=os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vi")
+ subprocess.run([ed,str(target)])
+ patches=[]
+ for f in files:
+  if f.exists():sid,t,body=parse(f);patches.append({"scene_id":sid,"title":t,"text":body})
+ code,d=req(b,"/api/library/apply",{"project_id":pid,"base_revision":(x.get("revision") or {}).get("revision_id"),"scenes":patches,"source":"remote-nvim"},20)
+ if code==409 or d.get("conflict"):raise RuntimeError("CONFLICT · both versions preserved · canonical untouched")
+ return d
+
+def edit(name=None,scene=None):
+ b,l=discover();p=pick(l,name);print(f"MERCURY · {p['title']} · {b}");d=edit_project(b,p,scene);print(f"SYNCED · {d.get('changed',0)} scene(s)")
+
+def prompt(stdscr,label,initial=""):
+ h,w=stdscr.getmaxyx();curses.echo();curses.curs_set(1)
+ stdscr.move(h-2,0);stdscr.clrtoeol();stdscr.addnstr(h-2,0,label+" "+initial,max(1,w-1));stdscr.refresh()
+ try:v=stdscr.getstr(h-2,min(w-1,len(label)+1+len(initial)),max(1,w-len(label)-3)).decode().strip()
+ finally:curses.noecho();curses.curs_set(0)
+ return (initial+v).strip()
+
+def confirm(stdscr,msg,word="y"):
+ v=prompt(stdscr,msg)
+ return v==word
+
+def library_ui(stdscr):
+ curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message=""
+ while True:
+  b,lib=discover();folders=lib.get("folders",[]);projects=lib.get("projects",[])
+  fmap={x["folder_id"]:x for x in folders}
+  dirs=[x for x in folders if x.get("parent_id")==folder]
+  projs=[x for x in projects if x.get("folder_id")==folder]
+  if query:
+   q=query.casefold();dirs=[x for x in dirs if q in x.get("name","").casefold()];projs=[x for x in projs if q in x.get("title","").casefold()]
+  items=[("dir",x) for x in sorted(dirs,key=lambda x:x["name"].casefold())]+[("project",x) for x in sorted(projs,key=lambda x:x["title"].casefold())]
+  idx=max(0,min(idx,max(0,len(items)-1)))
+  h,w=stdscr.getmaxyx();stdscr.erase()
+  path=[];f=folder
+  while f and f in fmap:path.append(fmap[f]["name"]);f=fmap[f].get("parent_id")
+  where=" / ".join(reversed(path)) or "Library"
+  stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects · {lib.get('node_name','')}",w-1,curses.A_BOLD)
+  stdscr.addnstr(1,0,f"{b}  ·  filter: {query or '—'}",w-1)
+  top=max(0,idx-(h-7));visible=items[top:top+max(1,h-7)]
+  for row,(kind,x) in enumerate(visible,3):
+   selected=(top+row-3)==idx;attr=curses.A_REVERSE if selected else curses.A_NORMAL
+   if kind=="dir":line=f"  {x['name']}/"
+   else:
+    loc="LOCAL" if x.get("local") else "REMOTE"
+    line=f"  {x.get('title','Untitled'):<34} {loc:<6} {x.get('availability','cache'):<12} {x.get('project_id','')[:8]}"
+   stdscr.addnstr(row,0,line,w-1,attr)
+  footer="↑↓ select  Enter enter/edit  ←/Backspace up  n project  N directory  r rename  m move  l local  x remove-local  d delete  / filter  o browser  q quit"
+  stdscr.addnstr(h-1,0,footer,w-1,curses.A_DIM)
+  if message:stdscr.addnstr(h-2,0,message,w-1);message=""
+  stdscr.refresh();key=stdscr.getch()
+  if key in (ord("q"),27):return
+  if key in (curses.KEY_UP,ord("k")):idx=max(0,idx-1)
+  elif key in (curses.KEY_DOWN,ord("j")):idx=min(max(0,len(items)-1),idx+1)
+  elif key==curses.KEY_PPAGE:idx=max(0,idx-max(1,h-7))
+  elif key==curses.KEY_NPAGE:idx=min(max(0,len(items)-1),idx+max(1,h-7))
+  elif key in (curses.KEY_HOME,):idx=0
+  elif key in (curses.KEY_END,):idx=max(0,len(items)-1)
+  elif key in (curses.KEY_LEFT,curses.KEY_BACKSPACE,127,8):
+   if folder:folder=fmap.get(folder,{}).get("parent_id");idx=0
+  elif key==ord("/"):query=prompt(stdscr,"Filter:");idx=0
+  elif key==ord("c"):query=""
+  elif key==ord("o"):webbrowser.open(b);message="Opened Mercury Writer in browser"
+  elif key==ord("n"):
+   name=prompt(stdscr,"New project name:")
+   if name:
+    try:post(b,"/api/library/new",{"name":name,"folder_id":folder});message="Project created"
+    except Exception as e:message=str(e)
+  elif key==ord("N"):
+   name=prompt(stdscr,"New directory name:")
+   if name:
+    try:post(b,"/api/library/folder/new",{"name":name,"parent_id":folder});message="Directory created"
+    except Exception as e:message=str(e)
+  elif items and key in (10,13,curses.KEY_ENTER):
+   kind,x=items[idx]
+   if kind=="dir":folder=x["folder_id"];idx=0;query=""
+   else:
+    curses.endwin()
+    try:d=edit_project(b,x);message=f"SYNCED · {d.get('changed',0)} scene(s)"
+    except Exception as e:message=str(e)
+    stdscr.refresh()
+  elif items and key==ord("r"):
+   kind,x=items[idx];name=prompt(stdscr,"Rename to:")
+   if name:
+    try:
+     post(b,"/api/library/folder/rename" if kind=="dir" else "/api/library/rename",
+          {"folder_id":x.get("folder_id"),"project_id":x.get("project_id"),"name":name});message="Renamed"
+    except Exception as e:message=str(e)
+  elif items and key==ord("m") and items[idx][0]=="project":
+   x=items[idx][1];choices=[("(Library root)",None)]+[(f["name"],f["folder_id"]) for f in folders]
+   name=prompt(stdscr,"Move to directory name (blank=root):")
+   dest=None
+   if name:
+    hits=[fid for nm,fid in choices if nm.casefold()==name.casefold()]
+    if not hits:message="Directory not found";continue
+    dest=hits[0]
+   try:post(b,"/api/library/move",{"project_id":x["project_id"],"folder_id":dest});message="Moved"
+   except Exception as e:message=str(e)
+  elif items and key==ord("l") and items[idx][0]=="project":
+   try:post(b,"/api/library/make-local",{"project_id":items[idx][1]["project_id"]});message="Local replica ready"
+   except Exception as e:message=str(e)
+  elif items and key==ord("x") and items[idx][0]=="project":
+   x=items[idx][1]
+   if confirm(stdscr,f'Remove local copy of "{x["title"]}"? type y: '):
+    try:post(b,"/api/library/remove-local",{"project_id":x["project_id"]});message="Local copy removed; Library project kept"
+    except Exception as e:message=str(e)
+  elif items and key==ord("d"):
+   kind,x=items[idx]
+   if kind=="dir":
+    if confirm(stdscr,f'Delete directory "{x["name"]}"? type y: '):
+     try:post(b,"/api/library/folder/delete",{"folder_id":x["folder_id"]});message="Directory deleted"
+     except Exception as e:message=str(e)
+   else:
+    if confirm(stdscr,f'Delete "{x["title"]}"? type DELETE: ',"DELETE"):
+     try:post(b,"/api/library/delete",{"project_id":x["project_id"]});message="Project moved to recoverable trash"
+     except Exception as e:message=str(e)
+
+def library():curses.wrapper(library_ui)
+def remove_local(name):
+ b,l=discover();p=pick(l,name)
+ if input(f'Remove local replica of "{p["title"]}"? [y/N] ').strip().lower()=="y":post(b,"/api/library/remove-local",{"project_id":p["project_id"]});print("REMOVED LOCAL · Library project kept")
+def delete_project(name):
+ b,l=discover();p=pick(l,name)
+ if input(f'Type DELETE to remove "{p["title"]}" from the Mercury Library: ').strip()=="DELETE":post(b,"/api/library/delete",{"project_id":p["project_id"]});print("DELETED · moved to recoverable Mercury trash")
+def airplane():
+ root=Path.home()/"Mercury Writer Documents";fs=list(root.glob("*/project.mercury")) if root.exists() else [];print("MERCURY AIRPLANE")
+ for f in fs:print(" ✓ LOCAL ·",f.parent.name)
+ print(f"{len(fs)} local project(s) available offline")
+
+a=sys.argv[1:]
+if not a or a[0] in ("library","projects","ls"):library()
+elif a[0]=="status":
+ b,l=discover();print(f"MERCURY {l.get('version','')} · {len(l.get('projects',[]))} projects · {l.get('node_name')} · {b}")
+elif a[0]=="edit":edit(a[1] if len(a)>1 else None,a[2] if len(a)>2 else None)
+elif a[0]=="remove-local":remove_local(a[1] if len(a)>1 else None)
+elif a[0]=="delete":delete_project(a[1] if len(a)>1 else None)
+elif a[:2]==["doctor","airplane"]:airplane()
+else:print('usage: mercury [library] | status | edit ["Project"] [scene] | remove-local ["Project"] | delete ["Project"] | doctor airplane')
