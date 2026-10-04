@@ -1,41 +1,71 @@
 #!/usr/bin/env python3
+import json,os,re,shutil,subprocess,sys,urllib.request,urllib.error,urllib.parse
 from pathlib import Path
-import json,os,subprocess,sys,urllib.request,urllib.error,shutil
-BASE=os.environ.get("MERCURY_URL","http://127.0.0.1:8765").rstrip("/")
-def request(path,payload=None):
- data=None if payload is None else json.dumps(payload).encode(); req=urllib.request.Request(BASE+path,data=data,headers={"Content-Type":"application/json"})
+LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json";KNOWN=["https://3090.tailb77b68.ts.net"]
+def req(b,p,x=None,timeout=5):
+ data=None if x is None else json.dumps(x).encode();q=urllib.request.Request(b.rstrip("/")+p,data=data,headers={"Content-Type":"application/json"})
  try:
-  with urllib.request.urlopen(req,timeout=10) as r:return json.loads(r.read().decode())
+  with urllib.request.urlopen(q,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
  except urllib.error.HTTPError as e:
-  data=json.loads(e.read().decode() or "{}")
-  if e.code==409:return data
-  raise
-def workspace():
- p=request("/api/project/current").get("project")
- if not p:raise SystemExit("No server project yet. Open Mercury and save a recovery snapshot first.")
- return Path(request("/api/workspace/export",{"project":p})["path"])
-def main():
- a=sys.argv[1:]
- if not a or a[0] in ("edit","e"):
-  root=workspace(); target=root/"manuscript"; q=" ".join(a[1:] if a else []).lower()
-  if q:
-   m=[p for p in target.rglob("*.md") if q in p.stem.lower()]
-   if len(m)==1:target=m[0]
-   elif len(m)>1:print("Multiple matches:\n"+"\n".join("  "+str(p.relative_to(root)) for p in m));raise SystemExit(2)
-   else:print(f"No scene matched {q!r}; opening manuscript workspace.")
-  editor=os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vi"); subprocess.run([editor,str(target)]); d=request("/api/workspace/import",{})
-  if d.get("conflict"):
-   print("Mercury: CONFLICT — both versions preserved. Browser/server manuscript was not overwritten.")
-   print("Conflict copy:",d.get("conflict_path") or "state/conflicts")
-   raise SystemExit(3)
-  print(f"Mercury: imported {d.get('changed',0)} changed scene(s).")
- elif a[0]=="sync":
-  d=request("/api/workspace/import",{})
-  if d.get("conflict"):
-   print("Mercury: CONFLICT — both versions preserved. Conflict copy:",d.get("conflict_path") or "state/conflicts");raise SystemExit(3)
-  print(f"Mercury: imported {d.get('changed',0)} changed scene(s).")
- elif a[0]=="workspace":print(workspace())
- elif a[0]=="status":
-  d=request("/api/workspace/status");print("Mercury server:",BASE);print("Workspace:",d.get("path") or "not created");print("Ready:","yes" if d.get("ready") else "no")
- else:print("Usage: mercury [edit [scene]] | sync | workspace | status");raise SystemExit(2)
-if __name__=="__main__":main()
+  try:return e.code,json.loads(e.read().decode())
+  except:return e.code,{"error":str(e)}
+def discover():
+ cs=[os.environ.get("MERCURY_URL"),LOCAL]+KNOWN
+ if CLIENT.exists():
+  try:
+   d=json.loads(CLIENT.read_text());cs=[d.get("url")]+d.get("servers",[])+cs
+  except:pass
+ found=[]
+ for b in dict.fromkeys(x.rstrip("/") for x in cs if x):
+  try:
+   c,d=req(b,"/api/library",timeout=1.2)
+   if c==200:found.append((len(d.get("projects",[])),b,d))
+  except:pass
+ if not found:raise SystemExit("Mercury: no local/Fabric library reachable. Check ~/Mercury Writer Documents for offline copies.")
+ return sorted(found,reverse=True)[0][1:]
+def pick(lib,name=None):
+ ps=lib["projects"]
+ if name:
+  h=[p for p in ps if name.lower() in p.get("title","").lower()]
+  if len(h)==1:return h[0]
+  raise SystemExit("Mercury: project not uniquely found.")
+ if len(ps)==1:return ps[0]
+ for i,p in enumerate(ps,1):print(f"{i:2}  {p['title']:<30} {p.get('availability','cache'):<12} {p.get('project_id','')[:8]} · {(p.get('revision_id') or '')[:12]}")
+ return ps[int(input("Project: "))-1]
+def slug(x):return (re.sub(r"[^A-Za-z0-9._ -]+","",x).strip().replace(" ","-") or "Untitled")[:80]
+def parse(f):
+ raw=f.read_text();sid=None;t=f.stem
+ if raw.startswith("---\n") and (e:=raw.find("\n---\n",4))>=0:
+  for line in raw[4:e].splitlines():
+   if ":" in line:
+    k,v=line.split(":",1)
+    if k.strip()=="mercury_scene_id":sid=v.strip()
+    if k.strip()=="title":t=v.strip()
+  return sid,t,raw[e+5:]
+ return sid,t,raw
+def library():
+ b,l=discover();print(f"MERCURY LIBRARY · {l.get('node_name')} · {b}");print("Documents ·",l.get("documents_dir"))
+ for p in l["projects"]:print(f" {'LOCAL' if p.get('local') else 'REMOTE':6} · {p.get('availability','cache'):12} · {p['title']} · {p.get('project_id','')[:8]}")
+def edit(name=None,scene=None):
+ b,l=discover();p=pick(l,name);pid=p["project_id"];c,x=req(b,"/api/library/bundle?id="+urllib.parse.quote(pid))
+ root=Path.home()/".cache/mercury/workspaces"/pid;shutil.rmtree(root,ignore_errors=True);man=root/"manuscript";man.mkdir(parents=True);files=[]
+ for s in x["scenes"]:
+  d=man/f"{s['chapter_index']+1:02d}-{slug(s['chapter_title'])}";d.mkdir(exist_ok=True);f=d/f"{s['scene_index']+1:02d}-{slug(s['scene_title'])}.md";f.write_text(f"---\nmercury_scene_id: {s['scene_id']}\ntitle: {s['scene_title']}\n---\n"+s["text"]);files.append(f)
+ target=man;h=[f for f in files if scene and scene.lower() in f.stem.lower()]
+ if len(h)==1:target=h[0]
+ ed=os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vi");print(f"MERCURY · {p['title']} · {b}");subprocess.run([ed,str(target)])
+ patches=[]
+ for f in files:
+  if f.exists():sid,t,body=parse(f);patches.append({"scene_id":sid,"title":t,"text":body})
+ c,d=req(b,"/api/library/apply",{"project_id":pid,"base_revision":(x.get("revision") or {}).get("revision_id"),"scenes":patches,"source":"remote-nvim"},20)
+ if c==409 or d.get("conflict"):print("CONFLICT · both versions preserved · canonical untouched");print(d.get("conflict_path"));raise SystemExit(3)
+ print(f"SYNCED · {d.get('changed',0)} scene(s)")
+def airplane():
+ root=Path.home()/"Mercury Writer Documents";fs=list(root.glob("*/project.mercury")) if root.exists() else [];print("MERCURY AIRPLANE")
+ for f in fs:print(" ✓ LOCAL ·",f.parent.name)
+ print(f"{len(fs)} local project(s) available offline")
+a=sys.argv[1:]
+if not a or a[0] in ("library","projects","ls","status","sync"):library()
+elif a[0]=="edit":edit(a[1] if len(a)>1 else None,a[2] if len(a)>2 else None)
+elif a[:2]==["doctor","airplane"]:airplane()
+else:print('usage: mercury | mercury library | mercury edit ["Project"] [scene] | mercury doctor airplane')

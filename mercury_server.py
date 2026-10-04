@@ -39,6 +39,8 @@ REVISION_DIR=STATE_DIR / "revisions"
 CONFLICT_DIR=STATE_DIR / "conflicts"
 WORKSPACE_ROOT=ROOT / "workspace"
 STATE_LOCK=threading.RLock()
+LIBRARY_DIR=ROOT/"library"; LIBRARY_INDEX=LIBRARY_DIR/"library.json"
+CONFIG_FILE=ROOT/"mercury_config.json"; DEFAULT_DOCUMENTS_DIR=Path.home()/"Mercury Writer Documents"
 
 
 
@@ -222,6 +224,114 @@ def _ingest_workspace(project=None):
 def _safe_slug(value):
     slug=re.sub(r"[^A-Za-z0-9._-]+","-",str(value or "Untitled")).strip("-._")
     return (slug or "Untitled")[:80]
+
+def _mcfg():
+ d={}
+ if CONFIG_FILE.exists():
+  try:d=json.loads(CONFIG_FILE.read_text())
+  except:pass
+ return {"documents_dir":str(Path(os.environ.get("MERCURY_DOCUMENTS_DIR") or d.get("documents_dir") or DEFAULT_DOCUMENTS_DIR).expanduser()),"node_name":d.get("node_name") or os.environ.get("MERCURY_NODE") or os.uname().nodename}
+def _llib():
+ try:
+  d=json.loads(LIBRARY_INDEX.read_text())
+  if isinstance(d.get("projects"),list):return d
+ except:pass
+ return {"format":"mercury-library-1","projects":[]}
+def _pid(p):
+ x=p.get("project_id") or p.get("id")
+ if x:return str(x)
+ try:
+  if "_content_identity" in globals():
+   title=str(p.get("title","")).strip().casefold();incoming=_content_identity(p)
+   for item in _llib().get("projects",[]):
+    old=_lproj(item.get("project_id"))
+    if old and str(old.get("title","")).strip().casefold()==title and _content_identity(old)==incoming:
+     p["project_id"]=item["project_id"];return str(item["project_id"])
+ except Exception:pass
+ x=uuid.uuid4().hex;p["project_id"]=x;return str(x)
+def _lf(pid,n):return LIBRARY_DIR/"projects"/str(pid)/n
+def _lproj(pid):
+ try:return json.loads(_lf(pid,"project.mercury").read_text())
+ except:return None
+def _lrev(pid):
+ try:return json.loads(_lf(pid,"revision.json").read_text())
+ except:return None
+def _mirror_docs(p,r):
+ c=_mcfg();root=Path(c["documents_dir"]);root.mkdir(parents=True,exist_ok=True);name=re.sub(r"[^A-Za-z0-9._ -]+","",p.get("title","Untitled")).strip() or "Untitled";pid=_pid(p);d=root/name
+ if d.exists():
+  try:
+   meta=json.loads((d/"mercury-replica.json").read_text())
+   if meta.get("project_id")!=pid:d=root/f"{name} [{pid[:8]}]"
+  except Exception:pass
+ d.mkdir(parents=True,exist_ok=True)
+ _atomic_json(d/"project.mercury",p);_atomic_json(d/"mercury-replica.json",{"project_id":pid,"revision":r,"node":c["node_name"],"mirrored_at":datetime.now().astimezone().isoformat(timespec="seconds")})
+def _lcommit(p,parent=None,source="server",force=False):
+ if not isinstance(p,dict) or not isinstance(p.get("chapters"),list):raise ValueError("Invalid Mercury project")
+ pid=_pid(p);cur=_lrev(pid);digest=_project_digest(p)
+ if cur and cur.get("content_sha256")==digest:return {"saved":False,"project_id":pid,"revision":cur,"reason":"unchanged"}
+ curid=cur.get("revision_id") if cur else None
+ if cur and not force and parent!=curid:
+  meta=_revision_envelope(p,parent,source);d=_lf(pid,"conflicts");d.mkdir(parents=True,exist_ok=True);path=d/(meta["revision_id"]+".json");_atomic_json(path,{"revision":meta,"conflicts_with":cur,"project":p});return {"saved":False,"conflict":True,"project_id":pid,"revision":cur,"conflict_path":str(path)}
+ meta=_revision_envelope(p,curid,source);d=_lf(pid,"project.mercury").parent;d.mkdir(parents=True,exist_ok=True);_atomic_json(_lf(pid,"project.mercury"),p);_atomic_json(_lf(pid,"revision.json"),meta);rr=_lf(pid,"revisions");rr.mkdir(exist_ok=True);_atomic_json(rr/(meta["revision_id"]+".json"),{"revision":meta,"project":p})
+ lib=_llib();item=next((x for x in lib["projects"] if x.get("project_id")==pid),None)
+ if item is None:item={"project_id":pid,"availability":"always-local"};lib["projects"].append(item)
+ item.update({"title":p.get("title","Untitled"),"author":p.get("author",""),"revision_id":meta["revision_id"],"content_sha256":meta["content_sha256"],"updated_at":meta["created_at"]});LIBRARY_DIR.mkdir(parents=True,exist_ok=True);_atomic_json(LIBRARY_INDEX,lib);_mirror_docs(p,meta);return {"saved":True,"project_id":pid,"revision":meta}
+def _lboot():
+ LIBRARY_DIR.mkdir(parents=True,exist_ok=True);Path(_mcfg()["documents_dir"]).mkdir(parents=True,exist_ok=True)
+ if not _llib()["projects"] and CANONICAL_PROJECT.exists():
+  try:
+   p=_load_canonical_project()
+   if p:_lcommit(p,None,"1.4-migration",True)
+  except Exception as e:print("Mercury library migration warning:",e)
+def _content_identity(p):
+ q=json.loads(json.dumps(p,ensure_ascii=False))
+ for k in ("project_id","id","modified","updated","updated_at"):q.pop(k,None)
+ return hashlib.sha256(json.dumps(q,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+def _library_repair_duplicates():
+ lib=_llib();projects=lib.get("projects",[]);groups={};changed=False
+ for item in list(projects):
+  p=_lproj(item.get("project_id"))
+  if p:groups.setdefault((str(p.get("title","")).strip().casefold(),_content_identity(p)),[]).append(item)
+ for items in groups.values():
+  if len(items)<2:continue
+  items.sort(key=lambda x:((x.get("revision_id") or ""),x.get("project_id") or ""),reverse=True)
+  for victim in items[1:]:
+   vid=victim["project_id"];src=_lf(vid,"project.mercury").parent;dst=LIBRARY_DIR/"duplicate-archive"/vid;dst.parent.mkdir(parents=True,exist_ok=True)
+   if src.exists() and not dst.exists():shutil.copytree(src,dst)
+   projects[:]=[x for x in projects if x.get("project_id")!=vid];changed=True
+ if changed:_atomic_json(LIBRARY_INDEX,lib)
+ return changed
+def _library_display_projects():
+ out=[];seen=set()
+ for item in _llib().get("projects",[]):
+  p=_lproj(item.get("project_id"))
+  if not p:continue
+  key=(str(p.get("title","")).strip().casefold(),_content_identity(p))
+  if key in seen:continue
+  seen.add(key);out.append(item)
+ return out
+def _lsummary():
+ c=_mcfg();projects=_library_display_projects()
+ for x in projects:x["local"]=_lf(x["project_id"],"project.mercury").exists()
+ return {"format":"mercury-library-1","node_name":c["node_name"],"documents_dir":c["documents_dir"],"projects":projects}
+def _lbundle(pid):
+ p=_lproj(pid)
+ if not p:raise FileNotFoundError("Project not found")
+ scenes=[]
+ for ci,c in enumerate(p.get("chapters",[])):
+  for si,x in enumerate(c.get("scenes",[])):scenes.append({"chapter_id":c.get("id"),"chapter_title":c.get("title","Chapter"),"chapter_index":ci,"scene_id":x.get("id"),"scene_title":x.get("title","Scene"),"scene_index":si,"text":x.get("text","")})
+ return {"project_id":pid,"title":p.get("title","Untitled"),"revision":_lrev(pid),"scenes":scenes}
+def _lapply(pid,parent,patches,source):
+ p=_lproj(pid)
+ if not p:raise FileNotFoundError("Project not found")
+ by={x.get("id"):x for c in p.get("chapters",[]) for x in c.get("scenes",[])};changed=0
+ for q in patches or []:
+  x=by.get(q.get("scene_id"))
+  if not x:continue
+  t=q.get("title",x.get("title","Scene"));body=q.get("text",x.get("text",""))
+  if x.get("title")!=t or x.get("text","")!=body:x["title"]=t;x["text"]=body;changed+=1
+ if not changed:return {"saved":False,"changed":0,"project_id":pid,"revision":_lrev(pid)}
+ p["modified"]=datetime.now().isoformat(timespec="seconds");r=_lcommit(p,parent,source);r["changed"]=changed;return r
 
 def _history_project_dir(project):
     # Stable enough for recovery while keeping each manuscript visually separate.
@@ -694,13 +804,13 @@ class Handler(SimpleHTTPRequestHandler):
         # but fall back to any Mercury_Writer*.html file so renaming a release
         # cannot break the launcher.
         if path=="/":
-            preferred = ROOT / "Mercury_Writer_1_3_1.html"
+            preferred = ROOT / "Mercury_Writer_1_4_1.html"
             if preferred.exists():
                 return str(preferred)
             candidates = sorted(ROOT.glob("Mercury_Writer*.html"))
             if candidates:
                 return str(candidates[-1])
-            return str(ROOT / "Mercury_Writer_1_3_1.html")
+            return str(ROOT / "Mercury_Writer_1_4_1.html")
         return str(ROOT / path.split("?",1)[0].lstrip("/"))
 
     def send_json(self, obj, status=200):
@@ -720,6 +830,18 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed=urlparse(self.path)
+        if parsed.path=="/api/library":
+            try:self.send_json(_lsummary())
+            except Exception as e:self.send_json({"error":str(e)},500)
+            return
+        if parsed.path=="/api/library/project":
+            q=parse_qs(parsed.query);pid=(q.get("id") or [""])[0];p=_lproj(pid)
+            if not p:self.send_json({"error":"Project not found"},404);return
+            self.send_json({"project":p,"revision":_lrev(pid)});return
+        if parsed.path=="/api/library/bundle":
+            try:q=parse_qs(parsed.query);self.send_json(_lbundle((q.get("id") or [""])[0]))
+            except FileNotFoundError as e:self.send_json({"error":str(e)},404)
+            return
         if parsed.path=="/api/history":
             title=parse_qs(parsed.query).get("title",[""])[0]
             self.send_json({"snapshots":_history_entries(title or None)[:30]})
@@ -764,9 +886,25 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             n=int(self.headers.get("Content-Length","0"))
             body=json.loads(self.rfile.read(n) or b"{}")
+            if self.path=="/api/library/commit":
+                r=_lcommit(body.get("project"),body.get("parent_revision"),body.get("source") or "browser");self.send_json(r,409 if r.get("conflict") else 200);return
+            if self.path=="/api/library/apply":
+                try:r=_lapply(body.get("project_id"),body.get("base_revision"),body.get("scenes"),body.get("source") or "remote-nvim")
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                self.send_json(r,409 if r.get("conflict") else 200);return
+            if self.path=="/api/library/repair":
+                changed=_library_repair_duplicates();self.send_json({"ok":True,"changed":changed,"library":_lsummary()});return
+            if self.path=="/api/library/availability":
+                lib=_llib();pid=body.get("project_id");v=body.get("availability");item=next((x for x in lib["projects"] if x.get("project_id")==pid),None)
+                if not item:self.send_json({"error":"Project not found"},404);return
+                if v not in ("always-local","cache","fabric-only"):self.send_json({"error":"Invalid availability"},400);return
+                item["availability"]=v;_atomic_json(LIBRARY_INDEX,lib);self.send_json({"ok":True});return
             if self.path=="/api/project/commit":
                 project=body.get("project")
                 result=_save_canonical_project(project,body.get("parent_revision"),body.get("source") or "browser")
+                if not result.get("conflict"):
+                    try:_lcommit(project,None,body.get("source") or "browser",True)
+                    except Exception as e:print("Mercury library mirror warning:",e)
                 self.send_json(result,409 if result.get("conflict") else 200)
                 return
             if self.path=="/api/history/save":
@@ -898,6 +1036,7 @@ Know when the best response is a short one."""
             self.send_json({"error":str(e)},500)
 
 if __name__=="__main__":
+    _lboot()
     os.chdir(ROOT)
     httpd=ThreadingHTTPServer((HOST,PORT),Handler)
     print(f"Mercury Writer: http://{HOST}:{PORT}")

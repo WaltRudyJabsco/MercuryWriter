@@ -1,11 +1,11 @@
-# Mercury Writer 1.3.1
+# Mercury Writer 1.4.1
 
 Mercury Writer is a local-first writing studio: browser writing application, small Python server, local/distributed Ollama intelligence, durable recovery, and an optional Markdown/Neovim workspace.
 
 ## Core files
 
 ```text
-Mercury_Writer_1_3_1.html   browser application
+Mercury_Writer_1_4_1.html   browser application
 mercury_server.py           server, AI bridge, PDF, recovery, workspace
 mercury                     terminal/Neovim sidecar
 install_mercury.sh          macOS/Linux installer
@@ -93,3 +93,46 @@ localStorage remain independent additional safety layers.
 This revision ledger is intentionally separate from Git. The Markdown workspace
 is Git-friendly and can later be checkpointed to a private bare Git remote
 without making Git part of Mercury's live synchronization protocol.
+
+
+## Mercury 1.4 — Fabric Library and airplane copies
+
+Mercury now has a multi-project server library. Every project has a permanent
+project_id, its own revision history/conflicts, and an availability policy:
+always-local, cache, or fabric-only.
+
+Default explicit local zone:
+
+    ~/Mercury Writer Documents/
+
+Accepted project revisions are mirrored there as project.mercury plus
+mercury-replica.json. This directory is outside the app install and survives
+upgrades. Override it with MERCURY_DOCUMENTS_DIR or mercury_config.json.
+
+Terminal:
+
+    mercury
+    mercury library
+    mercury edit
+    mercury edit "American Mercury"
+    mercury edit "American Mercury" Frank
+    mercury doctor airplane
+
+The browser Project panel now contains the library picker. Existing Find, PDF,
+Book View, browser autosave, recovery, AI, and revision/conflict protection are
+preserved. Automatic peer promotion is intentionally not claimed in 1.4; the
+library records availability without pretending stale replicas are current.
+
+
+## 1.4.1 — Project identity repair
+
+Same-title Library entries are now collapsed only when their normalized
+manuscript content is identical. Every collapsed project directory is copied
+first to `library/duplicate-archive/<project-id>/`; divergent manuscripts are
+never auto-merged or deleted.
+
+Legacy/browser projects without a project_id reuse an existing ID only when
+title and normalized manuscript content match exactly. Genuine same-title
+projects remain separate and show short project/revision IDs in the browser and
+terminal. The Documents mirror gives divergent same-title projects a stable
+`[short-id]` suffix instead of overwriting either copy.

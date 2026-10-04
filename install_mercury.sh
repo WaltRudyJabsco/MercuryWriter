@@ -419,3 +419,8 @@ echo
 echo "The launcher will keep Terminal open while the server is running."
 echo
 echo "The installer has already set the launcher executable permission."
+
+# Mercury 1.4 explicit offline documents zone; outside app install.
+MERCURY_CONFIG="$INSTALL_DIR/mercury_config.json"
+if [[ ! -f "$MERCURY_CONFIG" ]]; then printf '{\n  "documents_dir": "%s/Mercury Writer Documents"\n}\n' "$HOME" > "$MERCURY_CONFIG"; fi
+mkdir -p "$HOME/Mercury Writer Documents"
