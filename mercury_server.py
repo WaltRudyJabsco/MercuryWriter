@@ -275,7 +275,9 @@ def _lcommit(p,parent=None,source="server",force=False):
  meta=_revision_envelope(p,curid,source);d=_lf(pid,"project.mercury").parent;d.mkdir(parents=True,exist_ok=True);_atomic_json(_lf(pid,"project.mercury"),p);_atomic_json(_lf(pid,"revision.json"),meta);rr=_lf(pid,"revisions");rr.mkdir(exist_ok=True);_atomic_json(rr/(meta["revision_id"]+".json"),{"revision":meta,"project":p})
  lib=_llib();item=next((x for x in lib["projects"] if x.get("project_id")==pid),None)
  if item is None:item={"project_id":pid,"availability":"always-local"};lib["projects"].append(item)
- item.update({"title":p.get("title","Untitled"),"author":p.get("author",""),"revision_id":meta["revision_id"],"content_sha256":meta["content_sha256"],"updated_at":meta["created_at"]});LIBRARY_DIR.mkdir(parents=True,exist_ok=True);_atomic_json(LIBRARY_INDEX,lib);_mirror_docs(p,meta);return {"saved":True,"project_id":pid,"revision":meta}
+ item.update({"title":p.get("title","Untitled"),"author":p.get("author",""),"revision_id":meta["revision_id"],"content_sha256":meta["content_sha256"],"updated_at":meta["created_at"]});LIBRARY_DIR.mkdir(parents=True,exist_ok=True);_atomic_json(LIBRARY_INDEX,lib)
+ if item.get("availability")!="fabric-only":_mirror_docs(p,meta)
+ return {"saved":True,"project_id":pid,"revision":meta}
 def _lboot():
  LIBRARY_DIR.mkdir(parents=True,exist_ok=True);Path(_mcfg()["documents_dir"]).mkdir(parents=True,exist_ok=True)
  if not _llib()["projects"] and CANONICAL_PROJECT.exists():
@@ -310,6 +312,45 @@ def _library_display_projects():
   if key in seen:continue
   seen.add(key);out.append(item)
  return out
+def _documents_replica_dirs(pid):
+ root=Path(_mcfg()["documents_dir"]);out=[]
+ if not root.exists():return out
+ for d in root.iterdir():
+  if not d.is_dir():continue
+  try:
+   meta=json.loads((d/"mercury-replica.json").read_text())
+   if meta.get("project_id")==pid:out.append(d)
+  except Exception:pass
+ return out
+
+def _remove_local_replica(pid):
+ lib=_llib();item=next((x for x in lib.get("projects",[]) if x.get("project_id")==pid),None)
+ if not item:raise FileNotFoundError("Project not found")
+ item["availability"]="fabric-only";_atomic_json(LIBRARY_INDEX,lib)
+ removed=[]
+ for d in _documents_replica_dirs(pid):
+  trash=Path(_mcfg()["documents_dir"])/".mercury-trash"/f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{d.name}"
+  trash.parent.mkdir(parents=True,exist_ok=True);shutil.move(str(d),str(trash));removed.append(str(trash))
+ return {"ok":True,"project_id":pid,"availability":"fabric-only","removed_to":removed}
+
+def _delete_library_project(pid):
+ lib=_llib();item=next((x for x in lib.get("projects",[]) if x.get("project_id")==pid),None)
+ if not item:raise FileNotFoundError("Project not found")
+ stamp=datetime.now().strftime("%Y%m%d-%H%M%S")
+ trash=LIBRARY_DIR/"trash"/f"{stamp}-{pid}";trash.parent.mkdir(parents=True,exist_ok=True)
+ src=_lf(pid,"project.mercury").parent
+ if src.exists():shutil.move(str(src),str(trash))
+ doc_trash=[]
+ for d in _documents_replica_dirs(pid):
+  dst=Path(_mcfg()["documents_dir"])/".mercury-trash"/f"{stamp}-{d.name}-{pid[:8]}"
+  dst.parent.mkdir(parents=True,exist_ok=True);shutil.move(str(d),str(dst));doc_trash.append(str(dst))
+ lib["projects"]=[x for x in lib.get("projects",[]) if x.get("project_id")!=pid]
+ _atomic_json(LIBRARY_INDEX,lib)
+ tomb={"project_id":pid,"title":item.get("title"),"deleted_at":datetime.now().astimezone().isoformat(timespec="seconds"),
+       "library_trash":str(trash),"documents_trash":doc_trash}
+ _atomic_json(LIBRARY_DIR/"trash"/f"{stamp}-{pid}.tombstone.json",tomb)
+ return {"ok":True,"deleted":tomb}
+
 def _lsummary():
  c=_mcfg();projects=_library_display_projects()
  for x in projects:x["local"]=_lf(x["project_id"],"project.mercury").exists()
@@ -804,13 +845,13 @@ class Handler(SimpleHTTPRequestHandler):
         # but fall back to any Mercury_Writer*.html file so renaming a release
         # cannot break the launcher.
         if path=="/":
-            preferred = ROOT / "Mercury_Writer_1_4_1.html"
+            preferred = ROOT / "Mercury_Writer_1_4_2.html"
             if preferred.exists():
                 return str(preferred)
             candidates = sorted(ROOT.glob("Mercury_Writer*.html"))
             if candidates:
                 return str(candidates[-1])
-            return str(ROOT / "Mercury_Writer_1_4_1.html")
+            return str(ROOT / "Mercury_Writer_1_4_2.html")
         return str(ROOT / path.split("?",1)[0].lstrip("/"))
 
     def send_json(self, obj, status=200):
@@ -892,6 +933,14 @@ class Handler(SimpleHTTPRequestHandler):
                 try:r=_lapply(body.get("project_id"),body.get("base_revision"),body.get("scenes"),body.get("source") or "remote-nvim")
                 except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
                 self.send_json(r,409 if r.get("conflict") else 200);return
+            if self.path=="/api/library/remove-local":
+                try:r=_remove_local_replica(body.get("project_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                self.send_json(r);return
+            if self.path=="/api/library/delete":
+                try:r=_delete_library_project(body.get("project_id"))
+                except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                self.send_json(r);return
             if self.path=="/api/library/repair":
                 changed=_library_repair_duplicates();self.send_json({"ok":True,"changed":changed,"library":_lsummary()});return
             if self.path=="/api/library/availability":

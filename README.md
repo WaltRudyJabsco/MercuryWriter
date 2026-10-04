@@ -1,138 +1,243 @@
-# Mercury Writer 1.4.1
+# Mercury Writer
 
-Mercury Writer is a local-first writing studio: browser writing application, small Python server, local/distributed Ollama intelligence, durable recovery, and an optional Markdown/Neovim workspace.
+**A small, local-first writing studio for novels and long-form fiction.**
 
-## Core files
+Mercury Writer is built around a simple idea: the manuscript should remain at
+the center of the screen, the files should remain yours, and useful AI should be
+available without turning the writing program into a cloud service.
+
+Mercury is a self-contained browser writing application with a small Python
+standard-library companion server. It combines a serious manuscript editor,
+book-like 6 × 9 preview and PDF output, local Ollama AI, revisioned project
+storage, a multi-project Mercury Library, and a terminal/Neovim workflow.
+
+There is no required Mercury account, database, hosted manuscript service,
+`pip install`, `npm install`, or build process.
+
+![Mercury Writer editor](screenshots/MercuryWriter_Dark_Editor.png)
+
+![Mercury Writer Book View](screenshots/MercuryWriter_Light_Bookview.png)
+
+![Mercury Writer AI assistant](screenshots/MercuryWriter_Custom_AI.png)
+
+## What Mercury includes
+
+- Chapter/scene manuscript tree with collapsible chapters
+- Distraction-free Editor and 6 × 9 Book View
+- Scene notes, targets, statistics, Find, Undo/Redo, Focus, themes, and zoom
+- Full manuscript, chapter, or scene output scope
+- Portable `.mercury`, TXT, Markdown, and 6 × 9 PDF export
+- Continuous browser autosave plus server recovery history
+- Revision identity, immutable revision copies, and conflict preservation
+- Multi-project Mercury Library with stable project IDs
+- Explicit local/offline manuscript zone at `~/Mercury Writer Documents`
+- Local, cache, and Fabric-only availability policy
+- Local Ollama AI with selectable models and optional web search
+- Fabric-aware terminal library and local Neovim editing
+- Responsive desktop, tablet, and phone layouts
+
+## The mental model
+
+Mercury keeps source code, the installed app, and writing data separate:
 
 ```text
-Mercury_Writer_1_4_1.html   browser application
-mercury_server.py           server, AI bridge, PDF, recovery, workspace
-mercury                     terminal/Neovim sidecar
-install_mercury.sh          macOS/Linux installer
-mercury_ai.json             optional AI-host configuration
+~/Local-Labs/Mercury-Writer/       source · Git checkout
+~/Applications/Mercury-Writer/    installed app on macOS
+~/.local/share/mercury-writer/    installed app on Linux
+~/Mercury Writer Documents/       manuscripts · offline replicas
 ```
 
-A `.mercury` file is structured project data containing chapters, scenes, text, notes, settings and IDs. It is not one giant Markdown file.
+The Mercury Library is not a list of autosaves. One manuscript has one stable
+project identity, many revisions, and potentially several physical replicas.
 
-## Saving and recovery
+Deleting a file in `Mercury Writer Documents` is therefore **not** the same as
+deleting a project. An `always-local` replica may be repaired from canonical
+state. Use Mercury's explicit library actions when removal is intentional.
 
-Mercury has three independent safety layers: continuous browser autosave; changed server recovery snapshots about every five minutes (plus early/page-hide saves); and explicit portable `.mercury` saves. Server snapshots live in `history/<project-name>/`, and the latest server project is mirrored at `state/current.mercury`. The newest 100 changed snapshots are retained per project.
+### Remove Local Copy
 
-## Markdown / Neovim workspace
+**Remove Local** changes that project's availability to `fabric-only` on the
+current Mercury node and moves its Documents replica to `.mercury-trash`. The
+canonical Library project remains available.
 
-Mercury 1.3 can project the current manuscript into ordinary Markdown files under `workspace/<project>/manuscript/`, grouped by chapter and scene. The `.mercury` project remains canonical; Markdown files carry stable Mercury scene IDs for round-tripping.
+Terminal equivalent:
 
 ```bash
+mercury remove-local "American Mercury"
+```
+
+### Delete Project
+
+**Delete** removes the project from the Mercury Library and moves both its
+canonical library directory and Documents replica to recoverable Mercury trash.
+It requires typing `DELETE`. Mercury does not immediately erase the manuscript.
+
+Terminal equivalent:
+
+```bash
+mercury delete "American Mercury"
+```
+
+## Git workflow
+
+Clone Mercury once on every development machine into the same conventional
+source location:
+
+```bash
+mkdir -p ~/Local-Labs
+cd ~/Local-Labs
+git clone https://github.com/WaltRudyJabsco/Mercury-Writer.git
+cd Mercury-Writer
+```
+
+After a new version is pushed to GitHub:
+
+```bash
+cd ~/Local-Labs/Mercury-Writer
+git pull
+bash install_mercury.sh
+```
+
+The Git checkout is application **source**, not manuscript storage. Installer
+updates must not remove `~/Mercury Writer Documents` or Mercury's state/history.
+
+## Install
+
+From the repository or an unpacked release:
+
+```bash
+bash install_mercury.sh
+```
+
+Mercury installs to `~/Applications/Mercury-Writer` on macOS and
+`~/.local/share/mercury-writer` on Linux. The installer can prepare Python,
+Ollama, launchers, and optional Ollama Web Search credentials.
+
+Run the server directly when desired:
+
+```bash
+python3 mercury_server.py
+```
+
+Then open `http://127.0.0.1:8765`.
+
+## Terminal Mercury
+
+The `mercury` sidecar is a compact control surface:
+
+```text
+mercury
+mercury library
 mercury edit
-mercury edit Frank
-mercury sync
-mercury workspace
-mercury status
+mercury edit "American Mercury"
+mercury edit "American Mercury" Frank
+mercury remove-local "American Mercury"
+mercury delete "American Mercury"
+mercury doctor airplane
 ```
 
-`mercury edit` refreshes the workspace, opens `$EDITOR` (Neovim when available), and imports changed scene text/title when the editor exits. The browser Project panel also provides **Refresh Markdown Workspace** and **Import Workspace Changes**. Import currently round-trips scene title and text; chapter/scene creation, deletion, and reordering remain browser operations in 1.3.
+`mercury edit` selects a Library project, materializes a local Markdown
+workspace, opens the local `$EDITOR` (preferring Neovim), and commits changed
+scenes against the exact parent revision. A stale concurrent edit is preserved
+as a conflict instead of overwriting canonical work.
 
-## AI / Fabric
+`mercury doctor airplane` reports manuscripts physically present in the local
+Documents zone.
 
-Mercury remains standalone. It discovers reachable Ollama models and remembers its own choice. When explicit LOOK/Fabric preferences are available, they become the preferred initial model/host. Supported environment hooks: `FABRIC_MODEL`, `FABRIC_OLLAMA_HOST`, `LOOK_MODEL`, `LOOK_OLLAMA_HOST`. Known LOOK JSON settings locations are also checked. Fabric may choose the intelligence; Mercury owns manuscript context and writing behavior.
+## Local AI
 
-## Navigation
+Mercury discovers compatible models from Ollama. AI context can be scoped to
+selected text, the current scene, chapter, whole manuscript, or no manuscript
+context. With web search off, prompts and manuscript context stay on the
+configured Ollama path. Web search is optional and requires an Ollama API key.
 
-Book View: arrows move pages; Shift+Up/Down move pages; Shift+Left/Right jump first/last. Editor View: Shift+Up/Down page through the manuscript; Shift+Left/Right jump beginning/end.
+Mercury can use local models on the same machine or a reachable Fabric/Ollama
+host. AI availability is separate from manuscript availability: losing the
+Tailnet should not make an offline manuscript unreadable or uneditable.
 
-## Linux layout
+## Book View and PDF
+
+Book View uses fixed 6 × 9 page geometry for reading rhythm and approximate page
+flow. Mercury's preferred PDF path uses a local Chrome/Chromium-family browser
+when available, with its built-in fallback renderer otherwise.
+
+## Private mobile access
+
+![Mercury Writer on iOS through Tailscale](screenshots/MercuryWriter_iOS_Tailscale.png)
+
+Mercury's browser interface can be served privately across a Tailscale tailnet,
+letting an iPad, iPhone, or another computer use the writing interface while a
+larger machine provides the Mercury server and Ollama models.
+
+Do not confuse private Tailnet access with offline availability. Projects marked
+for local availability should also exist in `~/Mercury Writer Documents` on the
+machine you intend to use without the network.
+
+## Files and safety
+
+Mercury deliberately uses several layers:
 
 ```text
-~/.local/share/mercury-writer/    application/server
-~/.local/bin/mercury-writer       web-app launcher
-~/.local/bin/mercury              terminal/Neovim sidecar
-~/.local/bin/mercurycast          Mercury + Tailscale launcher
-~/.config/mercury/service.json    loose discovery descriptor
-~/.zsh_secrets                    protected optional secrets
+continuous      browser local autosave
+periodic        server recovery history
+canonical       revisioned Mercury Library
+offline         Mercury Writer Documents replica
+portable        explicit .mercury project file
 ```
 
-On macOS the default installation remains `~/Applications/Mercury-Writer`; the sidecar is installed at `~/.local/bin/mercury`.
+Revision conflicts preserve both branches. Duplicate project cleanup archives
+the removed identity first. Explicit project deletion uses recoverable trash.
+These systems are complementary rather than substitutes for ordinary backups.
 
-## Existing features preserved
+## Updating
 
-Book View/PDF, themes, Find, autosave, `.mercury` save/open, TXT/Markdown export, responsive phone/tablet/desktop layouts, AI context controls, selective web search, server recovery, Fabric-aware model selection, and Tailscale/Mercurycast remain intact.
+With the recommended Git checkout:
 
-## Design rule
+```bash
+cd ~/Local-Labs/Mercury-Writer
+git pull
+bash install_mercury.sh
+```
 
-The browser remains the polished writing application. Neovim is not reimplemented. Fabric is not embedded. Mercury exposes small explicit interfaces to both while remaining independently usable.
+Application updates and manuscript data are intentionally separate.
 
+## Requirements
 
-## 1.3.1 canonical revision safety
+Required:
 
-Mercury Server is now the authority for the live manuscript. Browser Mercury and
-the Markdown/Neovim workspace are clients of that state.
+- modern browser
+- Python 3
 
-Every accepted canonical change records:
+For local AI:
+
+- Ollama
+- at least one compatible chat model
+
+Optional:
+
+- Chrome/Chromium-family browser for the preferred PDF path
+- Ollama API key for web search
+- Tailscale for private Fabric access
+- Neovim for the terminal editing workflow
+
+Mercury's Python server uses the standard library and the application has no
+required third-party Python or JavaScript packages.
+
+## Screenshots
+
+The repository README expects these existing image paths:
 
 ```text
-revision_id       sortable timestamp + UUID entropy
-parent_revision   revision the editor started from
-created_at        offset-aware local timestamp
-content_sha256    full SHA-256 of canonical project content
-source            browser / nvim / bootstrap
+screenshots/MercuryWriter_Dark_Editor.png
+screenshots/MercuryWriter_Light_Bookview.png
+screenshots/MercuryWriter_Custom_AI.png
+screenshots/MercuryWriter_iOS_Tailscale.png
 ```
 
-Canonical revision metadata is stored in `state/revision.json`; immutable
-revision copies are stored under `state/revisions/`.
+## Credits
 
-The browser commits edits to the server after a short debounce and checks for
-new canonical revisions every two seconds while visible. A Neovim workspace
-records the revision it was projected from. On `:wqa`, `mercury edit` imports
-against that exact parent revision.
+Mercury Writer was built around the conviction that a serious writing tool can
+still be small, understandable, local, and owned by the person doing the
+writing.
 
-If another editor has advanced the manuscript in the meantime, Mercury does not
-choose a winner. It preserves the incoming branch under `state/conflicts/` and
-keeps the current canonical manuscript intact. Recovery snapshots and browser
-localStorage remain independent additional safety layers.
-
-This revision ledger is intentionally separate from Git. The Markdown workspace
-is Git-friendly and can later be checkpointed to a private bare Git remote
-without making Git part of Mercury's live synchronization protocol.
-
-
-## Mercury 1.4 — Fabric Library and airplane copies
-
-Mercury now has a multi-project server library. Every project has a permanent
-project_id, its own revision history/conflicts, and an availability policy:
-always-local, cache, or fabric-only.
-
-Default explicit local zone:
-
-    ~/Mercury Writer Documents/
-
-Accepted project revisions are mirrored there as project.mercury plus
-mercury-replica.json. This directory is outside the app install and survives
-upgrades. Override it with MERCURY_DOCUMENTS_DIR or mercury_config.json.
-
-Terminal:
-
-    mercury
-    mercury library
-    mercury edit
-    mercury edit "American Mercury"
-    mercury edit "American Mercury" Frank
-    mercury doctor airplane
-
-The browser Project panel now contains the library picker. Existing Find, PDF,
-Book View, browser autosave, recovery, AI, and revision/conflict protection are
-preserved. Automatic peer promotion is intentionally not claimed in 1.4; the
-library records availability without pretending stale replicas are current.
-
-
-## 1.4.1 — Project identity repair
-
-Same-title Library entries are now collapsed only when their normalized
-manuscript content is identical. Every collapsed project directory is copied
-first to `library/duplicate-archive/<project-id>/`; divergent manuscripts are
-never auto-merged or deleted.
-
-Legacy/browser projects without a project_id reuse an existing ID only when
-title and normalized manuscript content match exactly. Genuine same-title
-projects remain separate and show short project/revision IDs in the browser and
-terminal. The Documents mirror gives divergent same-title projects a stable
-`[short-id]` suffix instead of overwriting either copy.
+**The manuscript is the product. The software should get out of its way.**

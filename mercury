@@ -60,6 +60,18 @@ def edit(name=None,scene=None):
  c,d=req(b,"/api/library/apply",{"project_id":pid,"base_revision":(x.get("revision") or {}).get("revision_id"),"scenes":patches,"source":"remote-nvim"},20)
  if c==409 or d.get("conflict"):print("CONFLICT · both versions preserved · canonical untouched");print(d.get("conflict_path"));raise SystemExit(3)
  print(f"SYNCED · {d.get('changed',0)} scene(s)")
+def remove_local(name):
+ b,l=discover();p=pick(l,name)
+ if input(f'Remove local replica of "{p["title"]}"? [y/N] ').strip().lower()!="y":return
+ c,d=req(b,"/api/library/remove-local",{"project_id":p["project_id"]})
+ if c!=200:raise SystemExit("Mercury: "+d.get("error","remove failed"))
+ print("REMOVED LOCAL · Fabric/library project kept")
+def delete_project(name):
+ b,l=discover();p=pick(l,name)
+ if input(f'Type DELETE to remove "{p["title"]}" from the Mercury Library: ').strip()!="DELETE":return
+ c,d=req(b,"/api/library/delete",{"project_id":p["project_id"]})
+ if c!=200:raise SystemExit("Mercury: "+d.get("error","delete failed"))
+ print("DELETED · project moved to recoverable Mercury trash")
 def airplane():
  root=Path.home()/"Mercury Writer Documents";fs=list(root.glob("*/project.mercury")) if root.exists() else [];print("MERCURY AIRPLANE")
  for f in fs:print(" ✓ LOCAL ·",f.parent.name)
@@ -67,5 +79,7 @@ def airplane():
 a=sys.argv[1:]
 if not a or a[0] in ("library","projects","ls","status","sync"):library()
 elif a[0]=="edit":edit(a[1] if len(a)>1 else None,a[2] if len(a)>2 else None)
+elif a[0]=="remove-local":remove_local(a[1] if len(a)>1 else None)
+elif a[0]=="delete":delete_project(a[1] if len(a)>1 else None)
 elif a[:2]==["doctor","airplane"]:airplane()
-else:print('usage: mercury | mercury library | mercury edit ["Project"] [scene] | mercury doctor airplane')
+else:print('usage: mercury | mercury library | mercury edit ["Project"] [scene] | mercury remove-local ["Project"] | mercury delete ["Project"] | mercury doctor airplane')
