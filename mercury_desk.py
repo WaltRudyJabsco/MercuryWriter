@@ -10,7 +10,7 @@ import sys
 import time
 import textwrap
 import unicodedata
-from mercury_terminal import binding_rows,hint_styles,paint_bindings,mini_bindings,mini_help
+from mercury_terminal import binding_rows,hint_styles,paint_bindings,mini_bindings,mini_help,terminal_theme,screen_background,run_screen
 
 UNDO_LIMIT = 100
 CHECKPOINT_SECONDS = 2
@@ -224,7 +224,7 @@ def run(scenes, checkpoint, save, split=False,initial=0):
 
     def interface(window):
         curses.raw(); window.keypad(True); window.timeout(INPUT_TIMEOUT_MS)
-        styles=hint_styles()
+        theme=terminal_theme();styles=hint_styles(theme);screen_background(window,theme)
         while True:
             height, width = window.getmaxyx(); window.erase()
             if height < 10 or width < 48:
@@ -241,7 +241,7 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                     lines.append([])
                 help_footer=binding_rows([('F1/Esc','back'),('↑↓','scroll'),('PgUp/PgDn','page')],width-1)
                 page=height-len(help_footer)-2;state['help_scroll']=max(0,min(state['help_scroll'],max(0,len(lines)-page)))
-                paint(window,0,0,'MINI HELP · '+state['mode']+' · Ctrl means Control, not Command',width-1,curses.A_REVERSE)
+                paint(window,0,0,'MINI HELP · '+state['mode']+' · Ctrl means Control, not Command',width-1,theme['header'])
                 paint_bindings(window,1,lines[state['help_scroll']:state['help_scroll']+page],styles)
                 paint_bindings(window,height-len(help_footer),help_footer,styles)
                 window.refresh()
@@ -278,14 +278,17 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 pane = panes[number]; text = buffers[pane['scene']].text
                 top = number*pane_height
                 title = scenes[pane['scene']]['chapter_title']+' / '+scenes[pane['scene']]['scene_title']
-                paint(window, top, 0, ('▶ ' if number == state['pane'] else '  ')+title, width-1, curses.A_REVERSE)
+                paint(window, top, 0, (('▶ ' if number == state['pane'] else '  ')+title).ljust(width-1), width-1, theme['header'] if number==state['pane'] else theme['inactive'])
                 body_height = pane_height-2
+                for row in range(body_height):
+                    paint(window,top+1+row,0,' '*nav_width,nav_width,theme['navigation'])
+                    paint(window,top+1+row,nav_width,'│',1,theme['muted'])
                 nav_start = max(0, pane['nav']-body_height+1)
                 for row, index in enumerate(range(nav_start, min(len(scenes), nav_start+body_height))):
                     scene = scenes[index]
                     label = f"{scene['chapter_index']+1}.{scene['scene_index']+1} {scene['scene_title']}"
-                    paint(window, top+1+row, 0, label, nav_width-1,
-                          curses.A_REVERSE if index == pane['nav'] and number == state['pane'] and state['tree'] else curses.A_BOLD if index == pane['scene'] else 0)
+                    paint(window, top+1+row, 0, label.ljust(nav_width-1), nav_width-1,
+                          theme['selected'] if index == pane['nav'] and number == state['pane'] and state['tree'] else theme['navigation']|curses.A_BOLD if index == pane['scene'] else theme['navigation'])
                 rows = wrapped(text, edit_width)
                 pane['cursor']=min(pane['cursor'],len(text))
                 cursor_row = row_at(rows,pane['cursor'])
@@ -295,21 +298,23 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                     index = pane['scroll']+line
                     if index >= len(rows): break
                     start, end = rows[index]
-                    paint(window, top+1+line, nav_width+1, text[start:end], edit_width)
+                    paint(window, top+1+line, nav_width+1, text[start:end], edit_width,theme['body'])
                     if number == state['pane'] and state['mode'] == 'VISUAL':
                         selected=selection_bounds(state,pane['cursor'],len(text))
                         lo,hi=selected or (0,0)
                         a,b = max(start,lo),min(end,hi)
                         if a < b:
                             prefix = cell_width(text[start:a])
-                            paint(window,top+1+line,nav_width+1+prefix,text[a:b],edit_width-prefix,curses.A_REVERSE)
+                            paint(window,top+1+line,nav_width+1+prefix,text[a:b],edit_width-prefix,theme['selection'])
                 if number == state['pane'] and not state['tree']:
                     start = rows[cursor_row][0]
                     offset = cell_width(text[start:pane['cursor']])
                     cursor = (top+1+cursor_row-pane['scroll'], min(width-2, nav_width+1+offset))
             paint_bindings(window,footer_top,footer,styles)
-            paint(window,height-2,0,f"{state['mode']} · {'Manuscript' if state['tree'] else 'Writing'} · {len(buffer.text.split())} words · {state['message']}",width-1,curses.A_REVERSE)
-            paint(window,height-1,0,(':'+state['command']) if state['mode']=='COMMAND' else '',width-1)
+            badge=' '+state['mode']+' '
+            paint(window,height-2,0,badge,len(badge),theme[state['mode'].lower()])
+            paint(window,height-2,len(badge),f" · {'Manuscript' if state['tree'] else 'Writing'} · {len(buffer.text.split())} words · {state['message']}",width-len(badge)-1,theme['body'])
+            paint(window,height-1,0,(':'+state['command']) if state['mode']=='COMMAND' else '',width-1,theme['command'])
             try:
                 curses.curs_set(0 if state['tree'] else 1)
                 if not state['tree']: window.move(*cursor)
@@ -451,5 +456,5 @@ def run(scenes, checkpoint, save, split=False,initial=0):
             elif key==':':state['mode']='COMMAND';state['command']=''
             if before!=buffer.text:state['dirty']=True;active['column']=None
             elif not motion:active['column']=None
-    try: curses.wrapper(interface)
+    try: run_screen(interface)
     finally: checkpoint(values())

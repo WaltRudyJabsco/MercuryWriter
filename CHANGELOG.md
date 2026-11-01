@@ -1,3 +1,12 @@
+# 1.6.7 — Terminal Color and Clean Exit
+
+- Restore immediate Library input after a nested Mini session; q no longer waits for Enter.
+- Force a full Library redraw after the editor and restore terminal input settings on exit.
+- Accept q, Q and Ctrl-Q in the Library.
+- Apply a broader terminal palette: blue headers, gold navigation, violet clips, red quit/delete, distinct mode badges and light writing text.
+- Use explicit 256-color pairs with eight-color and monochrome fallbacks.
+- Highlight active panes, selections and navigator boundaries in Mini.
+
 # 1.6.6 — Clear Terminal Commands
 
 - Wrap Library, Trash and Mini command bars and contrast shortcut keys with descriptions.

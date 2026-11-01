@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.6 — Clear Terminal Commands
+# Mercury Writer 1.6.7 — Terminal Color and Clean Exit
 
 A local-first novel writing studio. The browser, your usual Neovim and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -96,10 +96,19 @@ own navigator. `i`, `a`, `o` enter insert; Esc returns to normal. Arrows work in
 all writing modes; `hjkl` also moves in normal and Vim visual mode.
 
 Library, Trash and Mini command bars wrap to fit the terminal, with contrasting
-key labels. Mini’s hints reflect normal, insert, visual, command and manuscript
+key labels. The terminal palette uses blue pane headers, gold navigation,
+violet clipboard controls, red quit/delete actions, distinct mode badges and
+light writing text on a dark background. It uses explicit 256-color values
+when supported, with an eight-color and monochrome fallback.
+
+Mini’s hints reflect normal, insert, visual, command and manuscript
 navigation contexts. **F1** opens scrollable full help in every mode and returns
 to the same mode/selection when closed; **?** opens it in normal mode. In insert
 mode, `?` inserts a question mark. **Ctrl-B** means Control alone, without Command.
+
+Returning from Mini restores immediate Library keyboard input and redraws the
+whole screen. **q**, **Q** or **Ctrl-Q** exits the Library immediately; Enter is
+not required. Terminal input settings are restored on leaving each screen.
 
 - Page Up/Down moves by the visible writing pane height, keeping the cursor’s
   screen row and preferred display column wherever document bounds allow.

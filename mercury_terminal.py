@@ -1,6 +1,75 @@
 """Shared terminal hints: wrap complete bindings and distinguish keys from actions."""
 import curses
+import os
+import sys
+import termios
 import unicodedata
+
+KEY_STYLES={}
+
+
+def run_screen(function,*args,**kwargs):
+    original=None;fd=None
+    try:
+        fd=sys.stdin.fileno()
+        if os.isatty(fd):original=termios.tcgetattr(fd)
+    except (OSError,ValueError,termios.error):pass
+    try:return curses.wrapper(function,*args,**kwargs)
+    finally:
+        # Nested curses screens can alter the saved shell mode. Restore the actual
+        # entry settings as well, so the next shell prompt behaves normally.
+        if original is not None:
+            try:
+                termios.tcsetattr(fd,termios.TCSADRAIN,original)
+            except (OSError,termios.error):pass
+
+
+def terminal_theme():
+    """Use explicit UI colors so a green shell foreground cannot tint the whole desk."""
+    theme={name:curses.A_NORMAL for name in ('body','muted','header','inactive','navigation','selected','selection','key','save','danger','clips','normal','insert','visual','command')}
+    theme.update(header=curses.A_BOLD,selected=curses.A_REVERSE,selection=curses.A_REVERSE,key=curses.A_BOLD)
+    try:
+        if curses.has_colors():
+            curses.start_color()
+            # All pairs specify both colors for consistent contrast in light and dark terminals.
+            if curses.COLORS>=256:
+                colors=[('body',253,234),('muted',246,234),('header',231,24),('inactive',250,238),
+                        ('navigation',223,236),('selected',16,221),('selection',16,153),('key',117,234),
+                        ('save',114,234),('danger',210,234),('clips',183,234),('normal',16,117),
+                        ('insert',16,221),('visual',16,211),('command',16,183)]
+            else:
+                colors=[('body',curses.COLOR_WHITE,curses.COLOR_BLACK),('muted',curses.COLOR_WHITE,curses.COLOR_BLACK),
+                        ('header',curses.COLOR_WHITE,curses.COLOR_BLUE),('inactive',curses.COLOR_WHITE,curses.COLOR_BLACK),
+                        ('navigation',curses.COLOR_YELLOW,curses.COLOR_BLACK),('selected',curses.COLOR_BLACK,curses.COLOR_YELLOW),
+                        ('selection',curses.COLOR_BLACK,curses.COLOR_CYAN),('key',curses.COLOR_CYAN,curses.COLOR_BLACK),
+                        ('save',curses.COLOR_GREEN,curses.COLOR_BLACK),('danger',curses.COLOR_RED,curses.COLOR_BLACK),
+                        ('clips',curses.COLOR_MAGENTA,curses.COLOR_BLACK),('normal',curses.COLOR_BLACK,curses.COLOR_CYAN),
+                        ('insert',curses.COLOR_BLACK,curses.COLOR_YELLOW),('visual',curses.COLOR_BLACK,curses.COLOR_MAGENTA),
+                        ('command',curses.COLOR_WHITE,curses.COLOR_BLUE)]
+            for pair,(name,foreground,background) in enumerate(colors,1):
+                if pair>=curses.COLOR_PAIRS:break
+                curses.init_pair(pair,foreground,background);theme[name]=curses.color_pair(pair)
+    except curses.error:pass
+    for name in ('header','key','save','danger','clips','normal','insert','visual','command'):theme[name]|=curses.A_BOLD
+    KEY_STYLES.clear()
+    for key,role in [('Ctrl-S','save'),('n','save'),('N','save'),('Ctrl-Q','danger'),('q','danger'),('d','danger'),('x','danger'),
+                     ('Ctrl-B','clips'),('P','clips'),('T','clips'),('i','insert'),('v','visual'),('Tab','navigation'),('↑↓','navigation'),('Enter','navigation')]:
+        KEY_STYLES[key]=theme[role]|curses.A_BOLD
+    return theme
+
+
+def screen_background(window,theme):
+    try:window.bkgd(' ',theme['body'])
+    except (AttributeError,curses.error):pass
+
+
+def resume_screen(window):
+    # An inner curses.wrapper ends cbreak mode; refresh alone does not restore it.
+    for action in (curses.reset_prog_mode,curses.noecho,curses.cbreak,lambda:curses.curs_set(0)):
+        try:action()
+        except curses.error:pass
+    window.keypad(True)
+    window.clearok(True);window.touchwin();window.refresh()
 
 
 def cells(text):
@@ -25,22 +94,17 @@ def binding_rows(bindings,width):
     return rows
 
 
-def hint_styles():
-    key,label=curses.A_BOLD,curses.A_NORMAL
-    try:
-        if curses.has_colors():
-            curses.start_color();curses.use_default_colors()
-            curses.init_pair(1,curses.COLOR_CYAN,-1)
-            key|=curses.color_pair(1)
-    except curses.error:pass
-    return key,label
+def hint_styles(theme=None):
+    theme=theme or terminal_theme()
+    return theme['key'],theme['body']
 
 
 def paint_bindings(window,start,rows,styles):
     for line,runs in enumerate(rows):
         column=0
         for text,highlight in runs:
-            try:window.addnstr(start+line,column,text,len(text),styles[0 if highlight else 1])
+            style=KEY_STYLES.get(text,styles[0]) if highlight else styles[1]
+            try:window.addnstr(start+line,column,text,len(text),style)
             except curses.error:pass
             column+=cells(text)
 
