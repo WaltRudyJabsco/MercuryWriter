@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+state/
+history/
+library/
+workspace/
+mercury_config.json
+mercury_memory.json
+mercury_epoch.json
+.mercury.lock

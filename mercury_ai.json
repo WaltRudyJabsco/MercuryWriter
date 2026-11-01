@@ -1,13 +1,4 @@
 {
-  "preferred_host": "3090",
-  "hosts": [
-    {
-      "name": "3090",
-      "url": "https://YOUR-OLLAMA-HOST.ts.net"
-    },
-    {
-      "name": "Mac",
-      "url": "http://127.0.0.1:11434"
-    }
-  ]
+  "preferred_host": "Local",
+  "hosts": [{"name": "Local", "url": "http://127.0.0.1:11434"}]
 }

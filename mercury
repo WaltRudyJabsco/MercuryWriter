@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import curses,json,os,re,shutil,subprocess,sys,urllib.request,urllib.error,urllib.parse,webbrowser
 from pathlib import Path
-LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json";KNOWN=["https://3090.tailb77b68.ts.net"]
+import argparse,time,shlex
+from mercury_session import Session
+LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json"
 
 def req(b,p,x=None,timeout=5):
  data=None if x is None else json.dumps(x).encode()
@@ -12,20 +14,38 @@ def req(b,p,x=None,timeout=5):
   try:return e.code,json.loads(e.read().decode())
   except:return e.code,{"error":str(e)}
 
+def start_local():
+ server=Path(__file__).resolve().with_name("mercury_server.py")
+ if not server.exists():return
+ logs=Path.home()/".cache/mercury";logs.mkdir(parents=True,exist_ok=True)
+ with (logs/"server.log").open("ab") as log:
+  subprocess.Popen([sys.executable,str(server)],stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
+ for _ in range(20):
+  try:
+   code,version=req(LOCAL,"/api/version",timeout=.2)
+   if code==200 and version.get("name")=="Mercury Writer":return
+  except OSError:pass
+  time.sleep(.1)
+
 def discover():
- cs=[os.environ.get("MERCURY_URL"),LOCAL]+KNOWN
+ # Explicit selection is authoritative; otherwise writing stays on this node.
+ explicit=os.environ.get("MERCURY_URL")
+ config={}
  if CLIENT.exists():
-  try:
-   d=json.loads(CLIENT.read_text());cs=[d.get("url")]+d.get("servers",[])+cs
-  except:pass
- found=[]
- for b in dict.fromkeys(x.rstrip("/") for x in cs if x):
-  try:
-   code,d=req(b,"/api/library",timeout=1.2)
-   if code==200:found.append((len(d.get("projects",[])),b,d))
-  except:pass
- if not found:raise SystemExit("Mercury: no local/Fabric library reachable. Check ~/Mercury Writer Documents for offline copies.")
- return sorted(found,reverse=True)[0][1:]
+  try:config=json.loads(CLIENT.read_text())
+  except (ValueError,OSError):pass
+ cs=[explicit] if explicit else [LOCAL,config.get("url"),*config.get("servers",[])]
+ for base in dict.fromkeys(value.rstrip("/") for value in cs if value):
+  for attempt in range(2 if base==LOCAL else 1):
+   try:
+    code,version=req(base,"/api/version",timeout=1)
+    if code!=200 or version.get("name")!="Mercury Writer":break
+    code,library=req(base,"/api/library",timeout=2)
+    if code==200:return base,library
+   except OSError:
+    if base==LOCAL and attempt==0:start_local()
+ if explicit:raise SystemExit("Mercury: selected server is unavailable; its address was not silently changed.")
+ raise SystemExit("Mercury: no local/configured library reachable. Inspect ~/.cache/mercury/server.log and ~/Mercury Writer Documents.")
 
 def post(b,path,payload):
  code,d=req(b,path,payload,20)
@@ -35,9 +55,10 @@ def post(b,path,payload):
 def pick(lib,name=None):
  ps=lib["projects"]
  if name:
-  h=[p for p in ps if name.lower() in p.get("title","").lower()]
+  h=[p for p in ps if name==p.get("project_id")] or [p for p in ps if name.lower() in p.get("title","").lower()]
   if len(h)==1:return h[0]
   raise SystemExit("Mercury: project not uniquely found.")
+ if not ps:raise SystemExit("Mercury: library is empty. Create a project in the browser or press n in mercury library.")
  if len(ps)==1:return ps[0]
  for i,p in enumerate(ps,1):print(f"{i:2}  {p['title']:<30} {p.get('availability','cache'):<12} {p.get('project_id','')[:8]}")
  return ps[int(input("Project: "))-1]
@@ -54,27 +75,41 @@ def parse(f):
   return sid,t,raw[e+5:]
  return sid,t,raw
 
-def edit_project(b,p,scene=None):
- pid=p["project_id"];code,x=req(b,"/api/library/bundle?id="+urllib.parse.quote(pid))
- if code!=200:raise RuntimeError(x.get("error","Could not load project"))
- root=Path.home()/".cache/mercury/workspaces"/pid;shutil.rmtree(root,ignore_errors=True);man=root/"manuscript";man.mkdir(parents=True);files=[]
- for sc in x["scenes"]:
-  d=man/f"{sc['chapter_index']+1:02d}-{slug(sc['chapter_title'])}";d.mkdir(exist_ok=True)
-  f=d/f"{sc['scene_index']+1:02d}-{slug(sc['scene_title'])}.md"
-  f.write_text(f"---\nmercury_scene_id: {sc['scene_id']}\ntitle: {sc['scene_title']}\n---\n"+sc["text"]);files.append(f)
- target=man;hits=[f for f in files if scene and scene.lower() in f.stem.lower()]
- if len(hits)==1:target=hits[0]
- ed=os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vi")
- subprocess.run([ed,str(target)])
- patches=[]
- for f in files:
-  if f.exists():sid,t,body=parse(f);patches.append({"scene_id":sid,"title":t,"text":body})
- code,d=req(b,"/api/library/apply",{"project_id":pid,"base_revision":(x.get("revision") or {}).get("revision_id"),"scenes":patches,"source":"remote-nvim"},20)
- if code==409 or d.get("conflict"):raise RuntimeError("CONFLICT · both versions preserved · canonical untouched")
- return d
+def edit_project(b,p,scene=None,editor=None,split=False):
+ code,bundle=req(b,"/api/library/bundle?id="+urllib.parse.quote(p["project_id"]))
+ if code!=200:raise RuntimeError(bundle.get("error","Could not load project"))
+ chosen=editor or os.environ.get("MERCURY_EDITOR") or ("nvim" if shutil.which("nvim") else "mini")
+ session=Session(b,bundle,req)
+ try:return session.edit(chosen,split,scene)
+ except Exception as error:raise RuntimeError(f"{error} · local session kept at {session.root}") from error
 
-def edit(name=None,scene=None):
- b,l=discover();p=pick(l,name);print(f"MERCURY · {p['title']} · {b}");d=edit_project(b,p,scene);print(f"SYNCED · {d.get('changed',0)} scene(s)")
+def edit(name=None,scene=None,editor=None,split=False):
+ b,lib=discover();project=pick(lib,name);print(f"MERCURY · {project['title']} · {b}")
+ result=edit_project(b,project,scene,editor,split)
+ print(f"SAVED · {result.get('changed',0)} scene(s) · recovery: {result['workspace']}")
+
+def sync_command(action):
+ if action in ('on','off'):
+  result=post(LOCAL,'/api/sync/config',{'enabled':action=='on'})
+  print('Mercury Fabric sync '+('enabled' if result['enabled'] else 'disabled')+' on this node')
+ elif action=='now':
+  print(json.dumps(post('http://127.0.0.1:7332','/v1/mercury/sync',{}),indent=2))
+ else:
+  code,result=req(LOCAL,'/api/sync/status');print(json.dumps(result,indent=2))
+
+def conflicts():
+ code,state=req(LOCAL,'/api/sync/status')
+ if code!=200:raise RuntimeError(state.get('error','Could not inspect conflicts'))
+ for row in state.get('conflicts',[]):print(f"{row['title']} · {row['project_id']} · {row['revision_id']} · {row['path']}")
+ if not state.get('conflicts'):print('No unresolved draft conflicts')
+
+def recover(path,editor=None,split=False):
+ root=Path(path).expanduser().resolve();record=json.loads((root/'session.json').read_text())
+ bundle=record['bundle'];bundle['revision']={'revision_id':record['base_revision']}
+ session=Session(record['server'],bundle,req,root=root)
+ result=session.edit(editor or os.environ.get('MERCURY_EDITOR','mini'),split)
+ print('SAVED · '+str(result['changed'])+' scene(s)')
+
 
 def prompt(stdscr,label,initial=""):
  h,w=stdscr.getmaxyx();curses.echo();curses.curs_set(1)
@@ -237,9 +272,15 @@ def delete_project(name):
  b,l=discover();p=pick(l,name)
  if input(f'Type DELETE to remove "{p["title"]}" from the Mercury Library: ').strip()=="DELETE":post(b,"/api/library/delete",{"project_id":p["project_id"]});print("DELETED · moved to recoverable Mercury trash")
 def airplane():
- root=Path.home()/"Mercury Writer Documents";fs=list(root.glob("*/project.mercury")) if root.exists() else [];print("MERCURY AIRPLANE")
- for f in fs:print(" ✓ LOCAL ·",f.parent.name)
- print(f"{len(fs)} local project(s) available offline")
+ try:
+  code,state=req(LOCAL,'/api/sync/status',timeout=3)
+ except OSError:
+  start_local();code,state=req(LOCAL,'/api/sync/status',timeout=3)
+ if code!=200:raise RuntimeError(state.get('error','Cannot verify local copies'))
+ print('MERCURY AIRPLANE · verified against this computer’s current revision heads')
+ for item in state.get('offline',[]):
+  print((' ✓ READY · ' if item['ready'] else ' ! NEEDS LOCAL COPY · ')+str(item['title']))
+ print(str(sum(item['ready'] for item in state.get('offline',[])))+' of '+str(len(state.get('offline',[])))+' projects ready offline')
 
 def reset_local():
  try:code,status=req(LOCAL,"/api/reset/status",timeout=2)
@@ -282,15 +323,46 @@ def doctor():
   print("State             "+("CLEAN" if clean else "ACTIVE"))
  except Exception as e:print("Running server    unavailable ·",e)
 
-a=sys.argv[1:]
-if not a or a[0] in ("library","projects","ls"):library()
-elif a[0]=="status":
- b,l=discover();print(f"MERCURY {l.get('version','')} · {len(l.get('projects',[]))} projects · {l.get('node_name')} · {b}")
-elif a[0]=="edit":edit(a[1] if len(a)>1 else None,a[2] if len(a)>2 else None)
-elif a[0]=="trash":trash()
-elif a[0]=="remove-local":remove_local(a[1] if len(a)>1 else None)
-elif a[0]=="delete":delete_project(a[1] if len(a)>1 else None)
-elif a[0]=="reset":reset_local()
-elif a==["doctor"]:doctor()
-elif a[:2]==["doctor","airplane"]:airplane()
-else:print('usage: mercury [library] | trash | status | edit ["Project"] [scene] | remove-local ["Project"] | delete ["Project"] | reset | doctor | doctor airplane')
+def main():
+ parser=argparse.ArgumentParser(description="Mercury Writer · one manuscript, browser and terminal views")
+ commands=parser.add_subparsers(dest='command')
+ for name in ('library','projects','ls','trash','status','reset','conflicts'):commands.add_parser(name)
+ command=commands.add_parser('resolve');command.add_argument('project');command.add_argument('revision')
+ for name in ('edit','recover'):
+  command=commands.add_parser(name)
+  command.add_argument('project' if name=='edit' else 'workspace',nargs=None if name=='recover' else '?')
+  if name=='edit':command.add_argument('scene',nargs='?')
+  command.add_argument('--editor',choices=['mini','nvim','external'])
+  command.add_argument('--split',action='store_true')
+ for name in ('remove-local','delete','link','open'):
+  command=commands.add_parser(name);command.add_argument('project',nargs='?')
+ command=commands.add_parser('sync');command.add_argument('action',nargs='?',default='status',choices=['on','off','status','now'])
+ command=commands.add_parser('doctor');command.add_argument('mode',nargs='?',choices=['airplane'])
+ args=parser.parse_args()
+ if args.command in (None,'library','projects','ls'):library()
+ elif args.command=='edit':edit(args.project,args.scene,args.editor,args.split)
+ elif args.command=='recover':recover(args.workspace,args.editor,args.split)
+ elif args.command=='trash':trash()
+ elif args.command=='remove-local':remove_local(args.project)
+ elif args.command=='delete':delete_project(args.project)
+ elif args.command=='reset':reset_local()
+ elif args.command=='doctor':airplane() if args.mode else doctor()
+ elif args.command=='sync':sync_command(args.action)
+ elif args.command=='conflicts':conflicts()
+ elif args.command=='resolve':
+  b,lib=discover();project=pick(lib,args.project)
+  code,current=req(b,'/api/library/project?id='+urllib.parse.quote(project['project_id']))
+  result=post(b,'/api/sync/resolve',{'project_id':project['project_id'],'revision_id':args.revision,'base_revision':current['revision']['revision_id']})
+  print('Resolved into revision '+result['revision']['revision_id']+' · both original drafts retained')
+ elif args.command=='status':
+  b,lib=discover();print(f"MERCURY {lib.get('version','')} · {len(lib.get('projects',[]))} projects · {lib.get('node_name')} · {b}")
+ elif args.command in ('link','open'):
+  b,lib=discover();identity=(args.project or '').removeprefix('mercury:')
+  if args.command=='open' and not identity and not lib.get('projects'):webbrowser.open(b);return
+  project=pick(lib,identity or None)
+  if args.command=='link':print(f"[{project['title'].replace('[',' ').replace(']',' ')}](mercury:{project['project_id']})")
+  else:webbrowser.open(b+'/?project='+urllib.parse.quote(project['project_id']))
+
+if __name__=='__main__':
+ try:main()
+ except (RuntimeError,OSError,ValueError) as error:raise SystemExit('Mercury: '+str(error))
