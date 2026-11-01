@@ -1,0 +1,323 @@
+.TH MERCURY 1 "" "Mercury Writer 1.6.8" "User Commands"
+.SH NAME
+mercury \- Mercury Library, writing editors and manuscript synchronization
+.SH "MERCURY"
+.nf
+usage: mercury [-h] [--editor {nvim,nvim-desk,mini,external}] [--split]
+               {library,projects,ls,trash,status,reset,conflicts,resolve,edit,recover,remove-local,delete,link,open,sync,doctor} ...
+
+Mercury Writer · one manuscript, browser and terminal views
+
+positional arguments:
+  {library,projects,ls,trash,status,reset,conflicts,resolve,edit,recover,remove-local,delete,link,open,sync,doctor}
+
+options:
+  -h, --help            show this help message and exit
+  --editor {nvim,nvim-desk,mini,external}
+                        mini: built-in editor (default); nvim: your usual Neovim;
+                        nvim-desk: custom Mercury layout
+  --split
+.fi
+.SH "MERCURY LIBRARY"
+.nf
+usage: mercury library [-h] [--editor {nvim,nvim-desk,mini,external}] [--split]
+
+options:
+  -h, --help            show this help message and exit
+  --editor {nvim,nvim-desk,mini,external}
+                        mini: built-in editor (default); nvim: your usual Neovim;
+                        nvim-desk: custom Mercury layout
+  --split
+.fi
+.SH "MERCURY PROJECTS"
+.nf
+usage: mercury projects [-h] [--editor {nvim,nvim-desk,mini,external}] [--split]
+
+options:
+  -h, --help            show this help message and exit
+  --editor {nvim,nvim-desk,mini,external}
+                        mini: built-in editor (default); nvim: your usual Neovim;
+                        nvim-desk: custom Mercury layout
+  --split
+.fi
+.SH "MERCURY LS"
+.nf
+usage: mercury ls [-h] [--editor {nvim,nvim-desk,mini,external}] [--split]
+
+options:
+  -h, --help            show this help message and exit
+  --editor {nvim,nvim-desk,mini,external}
+                        mini: built-in editor (default); nvim: your usual Neovim;
+                        nvim-desk: custom Mercury layout
+  --split
+.fi
+.SH "MERCURY TRASH"
+.nf
+usage: mercury trash [-h]
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY STATUS"
+.nf
+usage: mercury status [-h]
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY RESET"
+.nf
+usage: mercury reset [-h]
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY CONFLICTS"
+.nf
+usage: mercury conflicts [-h]
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY RESOLVE"
+.nf
+usage: mercury resolve [-h] project revision
+
+positional arguments:
+  project
+  revision
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY EDIT"
+.nf
+usage: mercury edit [-h] [--editor {nvim,nvim-desk,mini,external}] [--split]
+                    [project] [scene]
+
+positional arguments:
+  project
+  scene
+
+options:
+  -h, --help            show this help message and exit
+  --editor {nvim,nvim-desk,mini,external}
+                        mini: built-in editor (default); nvim: your usual Neovim;
+                        nvim-desk: custom Mercury layout
+  --split
+.fi
+.SH "MERCURY RECOVER"
+.nf
+usage: mercury recover [-h] [--editor {nvim,nvim-desk,mini,external}] [--split]
+                       workspace
+
+positional arguments:
+  workspace
+
+options:
+  -h, --help            show this help message and exit
+  --editor {nvim,nvim-desk,mini,external}
+                        mini: built-in editor (default); nvim: your usual Neovim;
+                        nvim-desk: custom Mercury layout
+  --split
+.fi
+.SH "MERCURY REMOVE-LOCAL"
+.nf
+usage: mercury remove-local [-h] [project]
+
+positional arguments:
+  project
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY DELETE"
+.nf
+usage: mercury delete [-h] [project]
+
+positional arguments:
+  project
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY LINK"
+.nf
+usage: mercury link [-h] [project]
+
+positional arguments:
+  project
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY OPEN"
+.nf
+usage: mercury open [-h] [project]
+
+positional arguments:
+  project
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH "MERCURY SYNC"
+.nf
+usage: mercury sync [-h] [{on,off,status,now}]
+
+positional arguments:
+  {on,off,status,now}
+
+options:
+  -h, --help           show this help message and exit
+.fi
+.SH "MERCURY DOCTOR"
+.nf
+usage: mercury doctor [-h] [{airplane}]
+
+positional arguments:
+  {airplane}
+
+options:
+  -h, --help  show this help message and exit
+.fi
+.SH MINI KEYBOARD REFERENCE
+.SS Mini writing desk
+.TP
+F1 / Esc
+close help
+.TP
+↑↓ / PgUp/PgDn
+scroll help
+.SS Control means Ctrl alone; Command is not required.
+.SS Every mode
+.TP
+Ctrl-S
+save
+.TP
+Ctrl-Q
+quit
+.TP
+Ctrl-W
+toggle split; return to normal
+.TP
+Tab
+toggle manuscript tree; return to normal
+.TP
+Ctrl-B
+open LOOK clips; insert a numbered clip
+.TP
+F1
+open help without changing mode
+.SS Normal mode
+.TP
+i / a / o
+enter insert mode
+.TP
+v
+enter Vim visual selection
+.TP
+hjkl / arrows
+move
+.TP
+Ctrl-J / Enter
+switch writing pane
+.TP
+u / Ctrl-R
+undo / redo
+.TP
+x
+delete character
+.TP
+p
+paste internal register
+.TP
+P
+open LOOK clips
+.TP
+0 / $ / G
+line start / line end / scene end
+.TP
+:
+enter command
+.TP
+?
+open help
+.SS Insert mode
+.TP
+Type
+insert text
+.TP
+Enter / Ctrl-J
+new line
+.TP
+Backspace / Delete
+delete text
+.TP
+Esc
+return to normal
+.TP
+?
+insert a question mark; use F1 for help
+.SS Visual selection
+.TP
+v then arrows / hjkl
+extend Vim selection
+.TP
+y / d
+copy / cut Vim selection
+.TP
+Shift+arrows
+start or extend standard selection
+.TP
+Type
+replace a standard Shift selection
+.TP
+Backspace / Delete
+remove a standard Shift selection
+.TP
+Esc
+cancel selection; return to normal
+.SS All writing modes
+.TP
+Arrows
+move cursor
+.TP
+PgUp / PgDn
+move a screen; retain screen row and preferred column
+.TP
+Home / End
+line start / end
+.TP
+Ctrl-Home / Ctrl-End
+scene start / end
+.TP
+Shift + navigation
+extend selection
+.TP
+Ctrl-A
+select entire scene
+.TP
+Ctrl-C / Ctrl-X / Ctrl-V
+copy / cut / paste system clipboard
+.SS Manuscript tree
+.TP
+↑↓ / j k
+select scene
+.TP
+Enter
+open scene in this pane
+.TP
+Tab
+return to writing
+.SS Commands
+.TP
+:w / :wq
+save / save and quit
+.TP
+:q
+exit; local recovery files retained
+.TP
+:split / :only
+two writing panes / one pane
+.SS LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.
