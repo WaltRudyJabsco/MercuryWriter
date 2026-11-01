@@ -1,3 +1,11 @@
+# 1.6.2 — Your Neovim
+
+- Restore configured Neovim and the chapter/scene directory browser as the default.
+- Keep the custom layout as `--editor nvim-desk`; mini remains opt-in when Neovim is available.
+- Native `--split` opens two horizontal scene buffers using ordinary Neovim.
+- Named chapter/scene workspaces retain shared commits, conflict protection and recovery.
+- Continue recovering older numbered-file sessions without moving or replacing their drafts.
+
 # 1.6.1 — One Library
 
 - Open now shows a searchable Mercury Library; Import file is separate.

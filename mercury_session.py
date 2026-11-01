@@ -1,6 +1,7 @@
 """A recoverable workspace per terminal session; never delete another editor's files."""
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -8,6 +9,14 @@ import subprocess
 import sys
 import tempfile
 import threading
+
+
+def scene_path(root, scene):
+    def slug(value):
+        return re.sub(r'[^\w-]+', '-', str(value), flags=re.UNICODE).strip('-')[:80] or 'untitled'
+    chapter = f"{scene['chapter_index']+1:02d}-{slug(scene['chapter_title'])}"
+    name = f"{scene['scene_index']+1:02d}-{slug(scene['scene_title'])}.md"
+    return root/'manuscript'/chapter/name
 
 
 def atomic_text(path, text):
@@ -23,10 +32,9 @@ def atomic_text(path, text):
 class Session:
     def __init__(self, base, bundle, request, root=None):
         pid = str(bundle['project_id'])
-        import re
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}',pid):raise ValueError('Invalid project ID')
         parent=Path.home()/'.cache/mercury/workspaces'/pid
-        parent.mkdir(parents=True,exist_ok=True)
+        if not root:parent.mkdir(parents=True,exist_ok=True)
         self.root=Path(root) if root else Path(tempfile.mkdtemp(prefix='session-',dir=parent))
         self.base=base; self.request=request; self.bundle=json.loads(json.dumps(bundle))
         self.revision=(bundle.get('revision') or {}).get('revision_id')
@@ -34,8 +42,14 @@ class Session:
         self.baseline={scene['scene_id']:scene['text'] for scene in self.scenes}
         self.lock=threading.RLock();self.conflict=False;self.changed=0;self.error=''
         for index,scene in enumerate(self.scenes):
-            scene['path']=str(self.root/f'{index+1:04d}.md')
-            if not root:atomic_text(Path(scene['path']),scene['text'])
+            path=scene_path(self.root,scene)
+            # Older recovery sessions use numbered files; never strand those drafts.
+            legacy=self.root/f'{index+1:04d}.md'
+            if root and legacy.is_file():path=legacy
+            scene['path']=str(path)
+            if not root:
+                path.parent.mkdir(parents=True,exist_ok=True)
+                atomic_text(path,scene['text'])
             else:scene['text']=Path(scene['path']).read_text(encoding='utf-8')
         self.record()
 
@@ -89,11 +103,21 @@ class Session:
             else:
                 manifest=self.root/'desk.json'
                 atomic_text(manifest,json.dumps({'scenes':self.scenes,'split':split,'initial':initial}))
-                if editor=='nvim':
+                if editor in ('nvim','nvim-desk'):
                     binary=shutil.which('nvim')
                     if not binary:raise RuntimeError('Neovim is unavailable; use --editor mini or install Neovim')
-                    env=dict(os.environ,MERCURY_SESSION=str(manifest),MERCURY_DESK_LUA=str(Path(__file__).with_suffix('.lua').with_name('mercury_desk.lua')))
-                    command=[binary,'-u','NONE','-i','NONE','-n','-c','lua dofile(vim.env.MERCURY_DESK_LUA)']
+                    if editor=='nvim-desk':
+                        env=dict(os.environ,MERCURY_SESSION=str(manifest),MERCURY_DESK_LUA=str(Path(__file__).with_suffix('.lua').with_name('mercury_desk.lua')))
+                        command=[binary,'-u','NONE','-i','NONE','-n','-c','lua dofile(vim.env.MERCURY_DESK_LUA)']
+                    else:
+                        # Let Neovim load the user's usual config and directory browser.
+                        manuscript=self.root/'manuscript'
+                        target=self.scenes[initial-1]['path'] if scene or not manuscript.is_dir() else str(manuscript)
+                        command=[binary]
+                        if split:
+                            command+=['-o',self.scenes[initial-1]['path'],self.scenes[initial % len(self.scenes)]['path']]
+                        else:command.append(target)
+                        env=None
                 else:
                     command=shlex.split(os.environ.get('EDITOR') or 'vi')+[self.scenes[initial-1]['path']];env=None
                 result=subprocess.run(command,env=env)
