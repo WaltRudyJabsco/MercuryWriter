@@ -189,7 +189,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_1.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_2.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -246,6 +246,46 @@ class StorageTests(unittest.TestCase):
 
 
 class EditorTests(unittest.TestCase):
+    def test_default_neovim_uses_chapter_tree_and_personal_config(self):
+        from unittest.mock import Mock,patch
+        with tempfile.TemporaryDirectory() as temporary, patch('mercury_session.Path.home',return_value=Path(temporary)):
+            scenes=[{'chapter_index':0,'chapter_title':'First chapter','scene_index':0,'scene_title':'Arrival','scene_id':'s1','text':'First draft'},
+                    {'chapter_index':1,'chapter_title':'Second chapter','scene_index':0,'scene_title':'Departure','scene_id':'s2','text':'Another scene'}]
+            request=Mock(return_value=(200,{'changed':1,'revision':{'revision_id':'r2'}}))
+            session=Session('local',{'project_id':'book','scenes':scenes},request)
+            self.assertEqual(Path(session.scenes[0]['path']).relative_to(session.root).as_posix(),'manuscript/01-First-chapter/01-Arrival.md')
+            def edit(command,env):
+                self.assertEqual(command,['/usr/bin/nvim',str(session.root/'manuscript')])
+                self.assertIsNone(env)
+                Path(session.scenes[1]['path']).write_text('Edited in another chapter')
+                return Mock(returncode=0)
+            with patch('mercury_session.shutil.which',return_value='/usr/bin/nvim'),patch('mercury_session.subprocess.run',side_effect=edit):
+                session.edit()
+            self.assertEqual(request.call_args.args[2]['scenes'],[{'scene_id':'s2','text':'Edited in another chapter'}])
+
+    def test_native_neovim_split_and_custom_desk_are_separate_options(self):
+        from unittest.mock import Mock,patch
+        with tempfile.TemporaryDirectory() as temporary, patch('mercury_session.Path.home',return_value=Path(temporary)):
+            scenes=[{'chapter_index':0,'chapter_title':'Chapter','scene_index':i,'scene_title':title,'scene_id':str(i),'text':title} for i,title in enumerate(['One','Two'])]
+            session=Session('local',{'project_id':'book','scenes':scenes},Mock())
+            with patch('mercury_session.shutil.which',return_value='/usr/bin/nvim'),patch('mercury_session.subprocess.run',return_value=Mock(returncode=0)) as launch:
+                session.edit('nvim',split=True)
+                self.assertEqual(launch.call_args.args[0],['/usr/bin/nvim','-o',session.scenes[0]['path'],session.scenes[1]['path']])
+                session.edit('nvim-desk')
+                self.assertIn('NONE',launch.call_args.args[0])
+                self.assertIn('MERCURY_DESK_LUA',launch.call_args.kwargs['env'])
+
+    def test_legacy_numbered_workspace_can_still_be_recovered(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            (root/'0001.md').write_text('Unsaved legacy draft')
+            bundle={'project_id':'book','scenes':[{'chapter_index':0,'chapter_title':'Chapter','scene_index':0,'scene_title':'Scene','scene_id':'s1','text':'Saved draft'}]}
+            session=Session('local',bundle,Mock(),root=root)
+            self.assertEqual(Path(session.scenes[0]['path']),root/'0001.md')
+            self.assertEqual(session.scenes[0]['text'],'Unsaved legacy draft')
+            self.assertEqual(session.baseline['s1'],'Saved draft')
+
     def test_cli_open_shows_library_without_a_terminal_project_prompt(self):
         import importlib.machinery
         from unittest.mock import Mock,patch

@@ -111,7 +111,7 @@ def recover(path,editor=None,split=False):
  root=Path(path).expanduser().resolve();record=json.loads((root/'session.json').read_text())
  bundle=record['bundle'];bundle['revision']={'revision_id':record['base_revision']}
  session=Session(record['server'],bundle,req,root=root)
- result=session.edit(editor or os.environ.get('MERCURY_EDITOR','mini'),split)
+ result=session.edit(editor or os.environ.get('MERCURY_EDITOR') or ('nvim' if shutil.which('nvim') else 'mini'),split)
  print('SAVED · '+str(result['changed'])+' scene(s)')
 
 
@@ -336,7 +336,7 @@ def main():
   command=commands.add_parser(name)
   command.add_argument('project' if name=='edit' else 'workspace',nargs=None if name=='recover' else '?')
   if name=='edit':command.add_argument('scene',nargs='?')
-  command.add_argument('--editor',choices=['mini','nvim','external'])
+  command.add_argument('--editor',choices=['nvim','nvim-desk','mini','external'],help='nvim: your usual Neovim (default when installed); nvim-desk: custom Mercury layout; mini: built-in editor')
   command.add_argument('--split',action='store_true')
  for name in ('remove-local','delete','link','open'):
   command=commands.add_parser(name);command.add_argument('project',nargs='?')
