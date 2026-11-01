@@ -24,7 +24,7 @@ from datetime import datetime
 import mercury_sync
 import mercury_fabric
 
-VERSION="1.6.4"
+VERSION="1.6.5"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
@@ -1124,6 +1124,14 @@ def browser_pdf_from_html(html):
         return data
 
 class Handler(SimpleHTTPRequestHandler):
+    def clipboard_allowed(self):
+        host=self.headers.get('Host','')
+        return (urlparse('http://'+host).hostname in ('localhost','127.0.0.1','::1')
+                and self.client_address[0] in ('127.0.0.1','::1')
+                and self.headers.get('X-Mercury-Clipboard')=='1'
+                and self.headers.get('Sec-Fetch-Site','same-origin') in ('same-origin','none')
+                and (not self.headers.get('Origin') or urlparse(self.headers['Origin']).netloc==host))
+
     def end_headers(self):
         # Mercury is a local/private app under active development. Never let
         # Safari/iPadOS keep an obsolete HTML copy after an upgrade.
@@ -1176,6 +1184,20 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _do_GET(self):
         parsed=urlparse(self.path)
+        if parsed.path=='/api/clipboard':
+            if not self.clipboard_allowed():
+                self.send_json({'error':'Open Mercury on this computer to use its local LOOK clips.'},403);return
+            from mercury_desk import look_clipboard
+            look=look_clipboard()
+            if look is None:
+                self.send_json({'available':False,'clips':[],'message':'Install LOOK to use its clipboard shelf. Normal browser paste is still available.'});return
+            try:
+                shelf=look.Shelf()
+                try:rows=shelf.rows()[:10]
+                finally:shelf.close()
+                self.send_json({'available':True,'clips':[{'id':identity,'text':text} for identity,text in rows if len(text)<=look.TEXT_LIMIT]})
+            except (OSError,ValueError,look.sqlite3.Error):self.send_json({'error':'LOOK clips are temporarily unavailable. Try Refresh.'},503)
+            return
         if parsed.path=="/api/sync/status":
             self.send_json(mercury_sync.status(sys.modules[__name__]));return
         if parsed.path=="/api/version":

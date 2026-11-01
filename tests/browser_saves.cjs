@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname,'../Mercury_Writer_1_6_4.html'),'utf8');
+const html = fs.readFileSync(path.join(__dirname,'../Mercury_Writer_1_6_5.html'),'utf8');
 const source = html.slice(html.indexOf('function markDirty(){'),html.indexOf('function syncFromEditor(){'));
 
 function setup() {

@@ -468,6 +468,7 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
     <button class="btn optional" data-action="redo">Redo</button>
     <div class="sep optional"></div>
     <button class="btn" data-action="find">Find</button>
+    <button class="btn" id="clipboardBtn" title="Open LOOK clipboard shelf">Clipboard</button>
     <button class="btn optional" data-action="print" title="Browser print; use Save → PDF for reliable PDF export">Print</button>
     <div class="sep optional"></div>
     <button class="btn optional" id="zoomOut">−</button><span id="zoomLabel" class="badge">100%</span><button class="btn optional" id="zoomIn">＋</button>
@@ -573,6 +574,20 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
 <div id="toast" class="toast"></div><div class="measure-wrap"><div id="measurePage" class="measure-page"><div id="measureContent" class="content"></div></div></div>
 
 
+
+<div id="clipboardDialog" class="modal-backdrop hidden">
+ <section class="modal library-modal" role="dialog" aria-modal="true" aria-labelledby="clipboardHeading">
+  <div class="modal-head" style="display:flex;align-items:center;gap:12px"><span id="clipboardHeading">LOOK Clipboard</span><span class="spacer"></span><button class="btn" id="closeClipboard" aria-label="Close clipboard">×</button></div>
+  <div class="modal-body">
+   <p style="margin-top:0;color:var(--muted)">Saved text clips on this computer, shared with Mini and lk clip.</p>
+   <div class="field"><label for="clipboardSearch">Find a clip</label><input id="clipboardSearch" type="search" placeholder="Search saved clips…" autocomplete="off"></div>
+   <div id="clipboardStatus" class="save-note" role="status">Loading clips…</div>
+   <div id="clipboardList" class="library-picker-list"></div>
+   <pre id="clipboardPreview" style="white-space:pre-wrap;overflow:auto;max-height:180px;font:inherit;border-top:1px solid var(--line);padding-top:12px"></pre>
+  </div>
+  <div class="modal-foot"><button class="btn" id="refreshClipboard">Refresh</button><span class="spacer"></span><button class="btn" id="insertClipboard" disabled>Insert clip</button></div>
+ </section>
+</div>
 
 <div id="libraryDialog" class="modal-backdrop hidden">
  <section class="modal library-modal" role="dialog" aria-modal="true" aria-labelledby="libraryHeading">
@@ -2448,6 +2463,62 @@ $("#libraryDialog").addEventListener("keydown",event=>{
  if(event.key==="Escape"){event.preventDefault();event.stopPropagation();$("#libraryDialog").classList.add("hidden")}
  if(event.key!=="Tab")return;
  const controls=[...$("#libraryDialog").querySelectorAll('button:not([disabled]),input,summary')].filter(item=>item.getClientRects().length);
+ const first=controls[0],last=controls[controls.length-1];
+ if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+ else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+});
+
+let clipboardClips=[],clipboardChoice=null,clipboardTarget=null,lastWritingEditor=null;
+document.addEventListener("focusin",event=>{if(["editor","splitEditor"].includes(event.target.id))lastWritingEditor=event.target});
+function drawClipboard(){
+ const query=$("#clipboardSearch").value.toLocaleLowerCase(),list=$("#clipboardList");list.replaceChildren();
+ for(const [index,clip] of clipboardClips.entries()){
+   if(!clip.text.toLocaleLowerCase().includes(query))continue;
+   const button=document.createElement("button");button.className="btn";button.style.textAlign="left";
+   button.textContent=`${index===9?0:index+1} · ${clip.text.replace(/\s+/g," ").slice(0,140)}`;
+   button.setAttribute("aria-pressed",clipboardChoice?.id===clip.id);
+   button.onclick=()=>{clipboardChoice=clip;drawClipboard()};list.appendChild(button);
+ }
+ if(!list.children.length){const empty=document.createElement("p");empty.className="save-note";empty.textContent=query?"No clips match your search.":"No saved clips yet. Copy text in Mini or use lk clip add.";list.appendChild(empty)}
+ $("#clipboardPreview").textContent=clipboardChoice?.text||"Select a clip to preview it.";
+ $("#insertClipboard").disabled=!clipboardChoice;
+}
+async function refreshClipboard(){
+ $("#clipboardStatus").textContent="Loading clips…";clipboardChoice=null;clipboardClips=[];drawClipboard();
+ try{
+   const response=await fetch("/api/clipboard",{cache:"no-store",headers:{"X-Mercury-Clipboard":"1"}}),data=await response.json();
+   if(!response.ok)throw new Error(data.error||"Clipboard unavailable");
+   clipboardClips=data.clips||[];$("#clipboardStatus").textContent=data.message||`${clipboardClips.length} saved clips · local to this computer`;
+   drawClipboard();
+ }catch(error){$("#clipboardStatus").textContent=error.message;drawClipboard()}
+}
+function openClipboard(){
+ const editor=lastWritingEditor?.id==="splitEditor"&&splitOpen?$("#splitEditor"):$("#editor");
+ clipboardTarget={editor,projectId:project.project_id,sceneId:editor.id==="splitEditor"?splitSceneId:activeId,start:editor.selectionStart,end:editor.selectionEnd,value:editor.value};
+ $("#clipboardDialog").classList.remove("hidden");$("#clipboardSearch").value="";$("#clipboardSearch").focus();refreshClipboard();
+}
+function closeClipboard(){
+ $("#clipboardDialog").classList.add("hidden");clipboardTarget?.editor.focus();
+}
+function insertClipboard(){
+ if(!clipboardChoice||!clipboardTarget)return;
+ const target=clipboardTarget,currentScene=target.editor.id==="splitEditor"?splitSceneId:activeId;
+ if(target.editor.value!==target.value||project.project_id!==target.projectId||currentScene!==target.sceneId||(target.editor.id==="splitEditor"&&!splitOpen)){
+   $("#clipboardStatus").textContent="The writing pane changed. Close and reopen Clipboard to choose where to insert.";return;
+ }
+ target.editor.focus();target.editor.setSelectionRange(target.start,target.end);
+ let inserted=false;try{inserted=document.execCommand("insertText",false,clipboardChoice.text)}catch{}
+ if(!inserted)target.editor.setRangeText(clipboardChoice.text,target.start,target.end,"end");
+ if(target.editor.id==="splitEditor")syncSplitEditor();else syncFromEditor();
+ closeClipboard();toast("Inserted LOOK clip");
+}
+$("#clipboardBtn").onclick=openClipboard;$("#closeClipboard").onclick=closeClipboard;
+$("#refreshClipboard").onclick=refreshClipboard;$("#clipboardSearch").oninput=drawClipboard;$("#insertClipboard").onclick=insertClipboard;
+$("#clipboardDialog").addEventListener("keydown",event=>{
+ event.stopPropagation();
+ if(event.key==="Escape"){event.preventDefault();closeClipboard()}
+ if(event.key!=="Tab")return;
+ const controls=[...$("#clipboardDialog").querySelectorAll('button:not([disabled]),input')].filter(item=>item.getClientRects().length);
  const first=controls[0],last=controls[controls.length-1];
  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}

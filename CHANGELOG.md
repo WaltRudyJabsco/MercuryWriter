@@ -1,3 +1,9 @@
+# 1.6.5 — Clipboard in Both Views
+
+- The browser Clipboard button opens searchable LOOK clips with previews and explicit insertion.
+- Insert into the upper or lower writing pane at its remembered selection; reject insertion if the project/pane changed.
+- The saved-clip API accepts only explicit same-origin requests on localhost; no system clipboard polling or new history syncing.
+
 # 1.6.4 — Writing Keys and LOOK Clips
 
 - Page Up/Down retains the cursor’s screen position and preferred display column.
