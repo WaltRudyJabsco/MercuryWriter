@@ -5,7 +5,14 @@ built-in terminal editor edit the same revisioned manuscripts. Mercury works
 alone; paired Future Crash + LOOK nodes add offline replication, model routing
 and accountless research when available.
 
-![Mercury Writer](screenshots/MercuryWriter_Dark_Editor.png)
+![Mercury Writer split editor](screenshots/Web_Split.jpg)
+
+Current browser interface with fictional demo text. Mini and Library captures
+below also use isolated demo data.
+
+![Mini split writing desk](screenshots/Mini_Split.png)
+
+![Mercury Library](screenshots/Library.png)
 
 ## Open a project, online or offline
 
@@ -244,3 +251,27 @@ node tests/browser_saves.cjs
 Tests use disposable storage and cover concurrent saves, offline ancestry,
 conflicts/resolution, deletion/reset, terminal recovery, installer preservation,
 both terminal desks, and browser save/poll races. Neovim's test skips if absent.
+
+## Help and manual maintenance
+
+[Generated CLI reference](docs/CLI.md) includes every subcommand's executable
+help and Mini's own keyboard reference. F1 opens the same shortcut definitions
+inside Mini; `mercury --help` lists the entry points.
+
+```sh
+python3 tools/command_reference.py
+python3 tools/command_reference.py --check
+man ./mercury.1
+```
+
+The source manual is [mercury.1](mercury.1). To make `man mercury` available in
+a standard user installation, install it explicitly:
+
+```sh
+mkdir -p ~/.local/share/man/man1
+cp mercury.1 ~/.local/share/man/man1/mercury.1
+```
+
+The current minimal runtime installer does not copy this new manual; update it
+from a trusted checkout when updating the runtime. Manuscripts and settings
+are independent of documentation generation.
