@@ -9,7 +9,7 @@ import shutil
 import sys
 
 RUNTIME = ('mercury','mercury_server.py','mercury_sync.py','mercury_fabric.py','mercury_session.py',
-           'mercury_desk.py','mercury_desk.lua','README.md','README.txt','CHANGELOG.md','LICENSE')
+           'mercury_desk.py','mercury_desk.lua','mercury_terminal.py','README.md','README.txt','CHANGELOG.md','LICENSE')
 
 
 def install(source, destination, bin_dir):

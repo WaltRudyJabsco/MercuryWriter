@@ -190,7 +190,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_5.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_6.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -510,10 +510,66 @@ class MiniWritingTests(unittest.TestCase):
         window.get_wch.side_effect=['\x1b','[','1',';','2','D']
         self.assertEqual(read_key(window),'\x1b[1;2D')
 
+    def test_help_preserves_insert_mode_and_shift_selection(self):
+        text,_=self.run_keys('draft',['i','A',curses.KEY_F1,curses.KEY_F1,'B','\x11'])
+        self.assertEqual(text,'ABdraft')
+        text,_=self.run_keys('hello',['i',curses.KEY_SRIGHT,curses.KEY_F1,curses.KEY_F1,'Z','\x11'])
+        self.assertEqual(text,'Zello')
+
+    def test_question_mark_help_and_inserted_question_mark_are_distinct(self):
+        text,_=self.run_keys('draft',['?','q','i','?','\x11'])
+        self.assertEqual(text,'?draft')
+
     def test_soft_wrap_boundary_and_display_columns(self):
         from mercury_desk import move_vertical,row_at,wrapped
         self.assertEqual(row_at(wrapped('abcdefgh',4),4),1)
         self.assertEqual(move_vertical('世界ab\n123456',3,1,20),10)
+
+
+class TerminalHintTests(unittest.TestCase):
+    def test_wrapped_bindings_preserve_all_keys_and_labels_at_narrow_widths(self):
+        from mercury_terminal import binding_rows,cells
+        bindings=[('Ctrl-S','save'),('Ctrl-B','LOOK clips'),('Shift+arrows','select'),('x','remove local copy'),('q','quit')]
+        expected=''.join(key+label for key,label in bindings).replace(' ','')
+        for width in (20,39,47,79,99):
+            rows=binding_rows(bindings,width)
+            self.assertTrue(all(cells(''.join(text for text,_ in row))<=width for row in rows))
+            actual=''.join(text for row in rows for text,_ in row).replace(' ','')
+            self.assertEqual(actual,expected)
+
+    def test_mode_hints_include_clipboard_and_context_specific_actions(self):
+        from mercury_terminal import mini_bindings
+        for mode in ('NORMAL','INSERT','VISUAL','COMMAND'):
+            bindings=dict(mini_bindings({'mode':mode,'tree':False}))
+            self.assertEqual(bindings['Ctrl-B'],'clips');self.assertIn('F1',bindings)
+            if mode=='INSERT':self.assertNotIn('Ctrl-J',bindings);self.assertNotIn('?',bindings)
+        self.assertIn('Enter',dict(mini_bindings({'mode':'NORMAL','tree':True})))
+
+    def test_key_and_description_attributes_differ_even_without_color(self):
+        from mercury_terminal import hint_styles,binding_rows,paint_bindings
+        from unittest.mock import Mock,patch
+        with patch.object(curses,'has_colors',return_value=False):styles=hint_styles()
+        self.assertNotEqual(styles[0],styles[1])
+        window=Mock();paint_bindings(window,3,binding_rows([('Ctrl-B','clips')],40),styles)
+        attrs=[call.args[4] for call in window.addnstr.call_args_list]
+        self.assertIn(styles[0],attrs);self.assertIn(styles[1],attrs)
+
+    def test_library_footer_wraps_without_overlapping_project_rows(self):
+        from mercury_terminal import cells
+        from unittest.mock import Mock,patch
+        cli=EditorTests().load_cli();drawn=[]
+        window=Mock();window.getmaxyx.return_value=(12,48);window.getch.return_value=ord('q')
+        window.addnstr.side_effect=lambda row,col,text,limit,*args:drawn.append((row,col,text[:limit]))
+        projects=[{'project_id':str(i),'title':'Project '+str(i)} for i in range(20)]
+        cli.discover=Mock(return_value=('local',{'projects':projects}))
+        with patch.object(curses,'curs_set'),patch.object(curses,'has_colors',return_value=False):cli.library_ui(window)
+        for row,col,text in drawn:
+            self.assertTrue(0<=row<12);self.assertLessEqual(col+cells(text),47)
+        footers=[row for row,col,text in drawn if text=='↑↓']
+        self.assertEqual(len(footers),1)
+        project_rows=[row for row,col,text in drawn if text.startswith('  Project')]
+        self.assertTrue(all(row<footers[0] for row in project_rows))
+        self.assertTrue(any('quit' in text for _,_,text in drawn))
 
 
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.5 — Clipboard in Both Views
+# Mercury Writer 1.6.6 — Clear Terminal Commands
 
 A local-first novel writing studio. The browser, your usual Neovim and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -95,6 +95,12 @@ navigator, Enter select, Ctrl-S save and Ctrl-Q exit/commit. Each split has its
 own navigator. `i`, `a`, `o` enter insert; Esc returns to normal. Arrows work in
 all writing modes; `hjkl` also moves in normal and Vim visual mode.
 
+Library, Trash and Mini command bars wrap to fit the terminal, with contrasting
+key labels. Mini’s hints reflect normal, insert, visual, command and manuscript
+navigation contexts. **F1** opens scrollable full help in every mode and returns
+to the same mode/selection when closed; **?** opens it in normal mode. In insert
+mode, `?` inserts a question mark. **Ctrl-B** means Control alone, without Command.
+
 - Page Up/Down moves by the visible writing pane height, keeping the cursor’s
   screen row and preferred display column wherever document bounds allow.
 - Home/End goes to the current line’s start/end; Ctrl-Home/End goes to the
@@ -111,7 +117,10 @@ all writing modes; `hjkl` also moves in normal and Vim visual mode.
 - In the browser, click **Clipboard** to search and preview the same saved LOOK
   clips, then insert one at the selection in the writing pane you last used.
   The web shelf is available when Mercury is opened on that computer’s localhost;
-  remote access does not expose its private clipboard history.
+  remote access does not expose its private clipboard history. Remote views
+  explain this and link to local Mercury instead of showing a misleading empty
+  shelf. `lk clip status` reports capture on the computer where it is run;
+  `lk clip on` enables capture there, and does not import another computer’s clips.
 
 Explicit copies/cuts also add text to LOOK’s local ten-slot shelf, including
 when automatic capture is off. This does not enable background capture or sync
@@ -121,7 +130,7 @@ without a system clipboard, Mini retains its internal register and reports the
 limitation. A saved LOOK clip can still be inserted with Ctrl-B.
 
 `x` deletes, `u`/Ctrl-R undo/redo, and `0`, `$`, `G` navigate. Commands: `:w`,
-`:q`, `:wq`, `:split`, `:only`. `?` shows help. Mini intentionally supports a
+`:q`, `:wq`, `:split`, `:only`. Mini intentionally supports a
 bounded set of Vim commands; Neovim is available for its full editing behavior.
 
 The optional **Neovim interface** (`--editor nvim`) loads your personal
