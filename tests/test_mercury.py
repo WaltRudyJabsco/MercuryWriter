@@ -190,9 +190,28 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_4.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_5.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
+
+    def test_clipboard_endpoint_is_local_explicit_and_reads_only_saved_look_clips(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock,patch
+        import mercury_desk,sqlite3
+        shelf=Mock();shelf.rows.return_value=[(7,'Saved writing excerpt')]
+        look=SimpleNamespace(Shelf=Mock(return_value=shelf),TEXT_LIMIT=256000,sqlite3=sqlite3,read_clipboard=Mock())
+        handler=self.a.Handler.__new__(self.a.Handler);handler.path='/api/clipboard';handler.client_address=('127.0.0.1',1)
+        handler.headers={'Host':'127.0.0.1:8765','X-Mercury-Clipboard':'1','Sec-Fetch-Site':'same-origin'};handler.send_json=Mock()
+        with patch.object(mercury_desk,'look_clipboard',return_value=look):handler._do_GET()
+        handler.send_json.assert_called_once_with({'available':True,'clips':[{'id':7,'text':'Saved writing excerpt'}]})
+        look.read_clipboard.assert_not_called();shelf.close.assert_called_once();shelf.set.assert_not_called()
+        for headers in [{'Host':'attacker.example','X-Mercury-Clipboard':'1'},
+                        {'Host':'127.0.0.1:8765'},
+                        {'Host':'127.0.0.1:8765','X-Mercury-Clipboard':'1','Origin':'https://attacker.example'},
+                        {'Host':'127.0.0.1:8765','X-Mercury-Clipboard':'1','Sec-Fetch-Site':'cross-site'}]:
+            handler.headers=headers;handler.send_json.reset_mock()
+            with patch.object(mercury_desk,'look_clipboard',side_effect=AssertionError('Do not read clips')):handler._do_GET()
+            self.assertEqual(handler.send_json.call_args.args[1],403)
 
     def test_reset_disables_sync_and_archives(self):
         self.commit(self.a);mercury_sync.configure(self.a,True)

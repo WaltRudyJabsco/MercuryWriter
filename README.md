@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.4 — Writing Keys and LOOK Clips
+# Mercury Writer 1.6.5 — Clipboard in Both Views
 
 A local-first novel writing studio. The browser, your usual Neovim and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -108,6 +108,10 @@ all writing modes; `hjkl` also moves in normal and Vim visual mode.
   writing mode. `p` pastes Mini’s internal register in normal/visual mode.
 - Ctrl-B opens the installed **LOOK clipboard shelf** (`lk clip`) and inserts
   the numbered clip you choose. `P` in normal mode does the same.
+- In the browser, click **Clipboard** to search and preview the same saved LOOK
+  clips, then insert one at the selection in the writing pane you last used.
+  The web shelf is available when Mercury is opened on that computer’s localhost;
+  remote access does not expose its private clipboard history.
 
 Explicit copies/cuts also add text to LOOK’s local ten-slot shelf, including
 when automatic capture is off. This does not enable background capture or sync
