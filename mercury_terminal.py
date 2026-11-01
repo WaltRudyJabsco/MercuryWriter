@@ -5,8 +5,6 @@ import sys
 import termios
 import unicodedata
 
-KEY_STYLES={}
-
 
 def run_screen(function,*args,**kwargs):
     original=None;fd=None
@@ -26,7 +24,7 @@ def run_screen(function,*args,**kwargs):
 
 def terminal_theme():
     """Use explicit UI colors so a green shell foreground cannot tint the whole desk."""
-    theme={name:curses.A_NORMAL for name in ('body','muted','header','inactive','navigation','selected','selection','key','save','danger','clips','normal','insert','visual','command')}
+    theme={name:curses.A_NORMAL for name in ('body','muted','header','inactive','navigation','selected','selection','key','clips','normal','insert','visual','command')}
     theme.update(header=curses.A_BOLD,selected=curses.A_REVERSE,selection=curses.A_REVERSE,key=curses.A_BOLD)
     try:
         if curses.has_colors():
@@ -34,27 +32,18 @@ def terminal_theme():
             # All pairs specify both colors for consistent contrast in light and dark terminals.
             if curses.COLORS>=256:
                 colors=[('body',253,234),('muted',246,234),('header',231,24),('inactive',250,238),
-                        ('navigation',223,236),('selected',16,221),('selection',16,153),('key',117,234),
-                        ('save',114,234),('danger',210,234),('clips',183,234),('normal',16,117),
-                        ('insert',16,221),('visual',16,211),('command',16,183)]
+                        ('navigation',223,236),('selected',16,221),('selection',16,153),('key',75,234)]
             else:
                 colors=[('body',curses.COLOR_WHITE,curses.COLOR_BLACK),('muted',curses.COLOR_WHITE,curses.COLOR_BLACK),
                         ('header',curses.COLOR_WHITE,curses.COLOR_BLUE),('inactive',curses.COLOR_WHITE,curses.COLOR_BLACK),
                         ('navigation',curses.COLOR_YELLOW,curses.COLOR_BLACK),('selected',curses.COLOR_BLACK,curses.COLOR_YELLOW),
-                        ('selection',curses.COLOR_BLACK,curses.COLOR_CYAN),('key',curses.COLOR_CYAN,curses.COLOR_BLACK),
-                        ('save',curses.COLOR_GREEN,curses.COLOR_BLACK),('danger',curses.COLOR_RED,curses.COLOR_BLACK),
-                        ('clips',curses.COLOR_MAGENTA,curses.COLOR_BLACK),('normal',curses.COLOR_BLACK,curses.COLOR_CYAN),
-                        ('insert',curses.COLOR_BLACK,curses.COLOR_YELLOW),('visual',curses.COLOR_BLACK,curses.COLOR_MAGENTA),
-                        ('command',curses.COLOR_WHITE,curses.COLOR_BLUE)]
+                        ('selection',curses.COLOR_BLACK,curses.COLOR_CYAN),('key',curses.COLOR_BLUE,curses.COLOR_BLACK)]
             for pair,(name,foreground,background) in enumerate(colors,1):
                 if pair>=curses.COLOR_PAIRS:break
                 curses.init_pair(pair,foreground,background);theme[name]=curses.color_pair(pair)
     except curses.error:pass
-    for name in ('header','key','save','danger','clips','normal','insert','visual','command'):theme[name]|=curses.A_BOLD
-    KEY_STYLES.clear()
-    for key,role in [('Ctrl-S','save'),('n','save'),('N','save'),('Ctrl-Q','danger'),('q','danger'),('d','danger'),('x','danger'),
-                     ('Ctrl-B','clips'),('P','clips'),('T','clips'),('i','insert'),('v','visual'),('Tab','navigation'),('↑↓','navigation'),('Enter','navigation')]:
-        KEY_STYLES[key]=theme[role]|curses.A_BOLD
+    for name in ('header','key','clips','normal','insert','visual','command'):theme[name]|=curses.A_BOLD
+    for name in ('clips','normal','insert','visual','command'):theme[name]=theme['key']
     return theme
 
 
@@ -96,14 +85,14 @@ def binding_rows(bindings,width):
 
 def hint_styles(theme=None):
     theme=theme or terminal_theme()
-    return theme['key'],theme['body']
+    return theme['key'],theme['muted']
 
 
 def paint_bindings(window,start,rows,styles):
     for line,runs in enumerate(rows):
         column=0
         for text,highlight in runs:
-            style=KEY_STYLES.get(text,styles[0]) if highlight else styles[1]
+            style=styles[0 if highlight else 1]
             try:window.addnstr(start+line,column,text,len(text),style)
             except curses.error:pass
             column+=cells(text)
