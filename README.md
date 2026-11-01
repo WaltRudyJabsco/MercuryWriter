@@ -1,305 +1,158 @@
-## Mercury Writer 1.5.4 — Fabric Reset
+# Mercury Writer 1.6.0 — Two Places
 
-Adds `mercury reset` with a pre-reset safety archive, a reset epoch that prevents stale browser autosaves from resurrecting deleted projects, and `mercury doctor` for local state inspection. Run `mercury reset` separately on every Mercury server node when performing a full Fabric wipe.
+A local-first novel writing studio. The browser, focused Neovim desk and small
+built-in terminal editor edit the same revisioned manuscripts. Mercury works
+alone; paired Future Crash + LOOK nodes add offline replication, model routing
+and accountless research when available.
 
-# Mercury Writer
+![Mercury Writer](screenshots/MercuryWriter_Dark_Editor.png)
 
-**Current release: 1.5.4 — Trash Recovery**
+## Browser split view
 
-**A small, local-first writing studio for novels and long-form fiction.**
+Run `mercury open`, or `python3 mercury_server.py` and visit
+http://127.0.0.1:8765. **Split** (Ctrl/Cmd+Shift+Backslash) opens two stacked
+writing panes. Each has its own manuscript navigator, scene selection, caret
+and scrolling. Drag the divider, or focus it and use Up/Down, to resize.
+Both panes edit shared scene objects, including when viewing one scene twice.
 
-Mercury Writer is built around a simple idea: the manuscript should remain at
-the center of the screen, the files should remain yours, and useful AI should be
-available without turning the writing program into a cloud service.
-
-Mercury is a self-contained browser writing application with a small Python
-standard-library companion server. It combines a serious manuscript editor,
-book-like 6 × 9 preview and PDF output, local Ollama AI, revisioned project
-storage, a multi-project Mercury Library, and a terminal/Neovim workflow.
-
-There is no required Mercury account, database, hosted manuscript service,
-`pip install`, `npm install`, or build process.
-
-![Mercury Writer editor](screenshots/MercuryWriter_Dark_Editor.png)
-
-![Mercury Writer Book View](screenshots/MercuryWriter_Light_Bookview.png)
-
-![Mercury Writer AI assistant](screenshots/MercuryWriter_Custom_AI.png)
-
-## What Mercury includes
-
-- Chapter/scene manuscript tree with collapsible chapters
-- Distraction-free Editor and 6 × 9 Book View
-- Scene notes, targets, statistics, Find, Undo/Redo, Focus, themes, and zoom
-- Full manuscript, chapter, or scene output scope
-- Portable `.mercury`, TXT, Markdown, and 6 × 9 PDF export
-- Continuous browser autosave plus server recovery history
-- Revision identity, immutable revision copies, and conflict preservation
-- Multi-project Mercury Library with stable project IDs
-- Explicit local/offline manuscript zone at `~/Mercury Writer Documents`
-- Local, cache, and Fabric-only availability policy
-- Local Ollama AI with selectable models and optional web search
-- Fabric-aware terminal library and local Neovim editing
-- Responsive desktop, tablet, and phone layouts
-
-## The mental model
-
-Mercury keeps source code, the installed app, and writing data separate:
-
-```text
-~/Local-Labs/Mercury-Writer/       source · Git checkout
-~/Applications/Mercury-Writer/    installed app on macOS
-~/.local/share/mercury-writer/    installed app on Linux
-~/Mercury Writer Documents/       manuscripts · offline replicas
-```
-
-The Mercury Library is not a list of autosaves. One manuscript has one stable
-project identity, many revisions, and potentially several physical replicas.
-
-Deleting a file in `Mercury Writer Documents` is therefore **not** the same as
-deleting a project. An `always-local` replica may be repaired from canonical
-state. Use Mercury's explicit library actions when removal is intentional.
-
-### Remove Local Copy
-
-**Remove Local** changes that project's availability to `fabric-only` on the
-current Mercury node and moves its Documents replica to `.mercury-trash`. The
-canonical Library project remains available.
-
-Terminal equivalent:
-
-```bash
-mercury remove-local "American Mercury"
-```
-
-### Delete Project
-
-**Delete** removes the project from the Mercury Library and moves both its
-canonical library directory and Documents replica to recoverable Mercury trash.
-It requires typing `DELETE`. Mercury does not immediately erase the manuscript.
-
-Terminal equivalent:
-
-```bash
-mercury delete "American Mercury"
-```
-
-## Git workflow
-
-Clone Mercury once on every development machine into the same conventional
-source location:
-
-```bash
-mkdir -p ~/Local-Labs
-cd ~/Local-Labs
-git clone https://github.com/WaltRudyJabsco/Mercury-Writer.git
-cd Mercury-Writer
-```
-
-After a new version is pushed to GitHub:
-
-```bash
-cd ~/Local-Labs/Mercury-Writer
-git pull
-bash install_mercury.sh
-```
-
-The Git checkout is application **source**, not manuscript storage. Installer
-updates must not remove `~/Mercury Writer Documents` or Mercury's state/history.
+The upper pane owns AI selection, scene notes, formatting and export scope.
+**Swap** exchanges scenes when you want those tools on the lower scene.
+Book View and Focus return to one pane. Split is also in the mobile menu.
+The editor retains chapter/scene organization, notes, targets, Markdown,
+Find, themes, recovery, 6 × 9 book preview and PDF/TXT/Markdown/.mercury export.
 
 ## Install
 
-From the repository or an unpacked release:
+Python 3.12+ on macOS or Linux is enough for the browser, server and built-in
+editor. No account, model download, package install or build is required.
 
-```bash
-bash install_mercury.sh
+```sh
+./install_mercury.sh --minimal
+mercury open
+mercury edit --editor mini
 ```
 
-Mercury installs to `~/Applications/Mercury-Writer` on macOS and
-`~/.local/share/mercury-writer` on Linux. The installer can prepare Python,
-Ollama, launchers, and optional Ollama Web Search credentials.
+Add `~/.local/bin` to PATH if needed. The minimal installer verifies runtime
+copies, preserves configuration/manuscripts, and supplies `mercury` and
+`mercury-server` launchers. The CLI starts its local server on demand.
+Custom destinations use `--install-dir PATH --bin-dir PATH` after `--minimal`.
+The original interactive installer also offers Ollama and model setup.
+Future Crash + LOOK includes an optional companion installation:
 
-Run the server directly when desired:
-
-```bash
-python3 mercury_server.py
+```sh
+./install.sh --mercury=install
+./install.sh --mercury=off
+./install.sh --mercury=install --mercury-source=/path/to/MercuryWriter
 ```
 
-Then open `http://127.0.0.1:8765`.
+## Compare the terminal desks
 
-## Terminal Mercury
+```sh
+mercury                                      # Library and organization
+mercury edit "My Novel" --editor nvim --split
+mercury edit "My Novel" --editor mini --split
+mercury edit "My Novel" "Arrival" --editor mini
+```
 
-The `mercury` sidecar is a compact control surface:
+The **Neovim desk** uses plain Neovim without plugins or personal config and
+retains its full normal/insert/visual behavior. Tab switches manuscript/writing;
+Enter opens a scene. `:MercurySplit` or Space-S toggles two writing rows, each
+with a navigator. `:w` / Ctrl-S writes a scene; changed files commit through
+Mercury about every two seconds. Space-Q writes all buffers and exits.
+Ordinary `:qa` refuses unsaved buffers.
 
-```text
-mercury
-mercury library
-mercury edit
-mercury edit "American Mercury"
-mercury edit "American Mercury" Frank
-mercury remove-local "American Mercury"
-mercury delete "American Mercury"
+The **built-in desk** offers Ctrl-W split, Ctrl-J other pane, Tab navigator,
+Enter select, Ctrl-S save and Ctrl-Q exit/commit. `i`, `a`, `o` enter insert;
+Esc returns to normal. `hjkl`/arrows move, `v` selects, `y`/`d` copies/deletes
+a selection, `x` deletes, `p` pastes, `u`/Ctrl-R undo/redo, and `0`, `$`, `G`
+navigate. Commands: `:w`, `:q`, `:wq`, `:split`, `:only`. `?` shows help.
+This intentionally bounded editor does not implement all Vim motions, counts,
+operators, registers or macros. Neovim remains available for those.
+
+Set `MERCURY_EDITOR=mini` or `nvim` for a default. `--editor external` uses
+`$EDITOR` (otherwise vi) for one scene. Every session has a separate recovery
+workspace; opening another editor never deletes an existing session's files.
+
+```sh
+mercury recover ~/.cache/mercury/workspaces/PROJECT_ID/session-DIRECTORY --editor mini
+```
+
+## One identity, offline copies, explicit conflicts
+
+Projects have stable IDs independent of titles, folders, machines or IPs.
+Browser, terminal, Library and workspace imports share one per-project revision
+lineage. Saves name their expected parent; stale editors cannot overwrite a
+newer draft. Mercury preserves their draft as a conflict. Thread/process locks
+serialize head changes; immutable snapshots are written before heads advance.
+
+The application directory contains the Library and revision history.
+`~/Mercury Writer Documents/TITLE/project.mercury` is a readable offline replica
+with an identity/revision receipt. Writing data stays separate from source.
+Always Local is the default. Do not choose Fabric Only for work needed offline.
+
+Install Mercury and updated Future Crash + LOOK on each writing computer, pair
+the nodes, and enable **Project → Fabric copies** or run:
+
+```sh
+mercury sync on
+mercury sync now
 mercury doctor airplane
 ```
 
-`mercury edit` selects a Library project, materializes a local Markdown
-workspace, opens the local `$EDITOR` (preferring Neovim), and commits changed
-scenes against the exact parent revision. A stale concurrent edit is preserved
-as a conflict instead of overwriting canonical work.
+The resident node exchanges revisions approximately every 15 seconds while
+both Mercury servers run. Pairing credentials and certificate-pinned transport
+stay inside Fabric; no new unauthenticated remote Mercury service is exposed.
+There is no mandatory central server. CLI discovery prefers this computer,
+never a server chosen by project count. An explicit `MERCURY_URL` selects that
+server without silently falling back elsewhere.
 
-`mercury doctor airplane` reports manuscripts physically present in the local
-Documents zone.
+Only ancestry permits automatic updates. Divergent offline edits remain visible
+conflicts; wall clocks never select a winning manuscript.
 
-## Local AI
-
-Mercury discovers compatible models from Ollama. AI context can be scoped to
-selected text, the current scene, chapter, whole manuscript, or no manuscript
-context. With web search off, prompts and manuscript context stay on the
-configured Ollama path. Web search is optional and requires an Ollama API key.
-
-Mercury can use local models on the same machine or a reachable Fabric/Ollama
-host. AI availability is separate from manuscript availability: losing the
-Tailnet should not make an offline manuscript unreadable or uneditable.
-
-## Book View and PDF
-
-Book View uses fixed 6 × 9 page geometry for reading rhythm and approximate page
-flow. Mercury's preferred PDF path uses a local Chrome/Chromium-family browser
-when available, with its built-in fallback renderer otherwise.
-
-## Private mobile access
-
-![Mercury Writer on iOS through Tailscale](screenshots/MercuryWriter_iOS_Tailscale.png)
-
-Mercury's browser interface can be served privately across a Tailscale tailnet,
-letting an iPad, iPhone, or another computer use the writing interface while a
-larger machine provides the Mercury server and Ollama models.
-
-Do not confuse private Tailnet access with offline availability. Projects marked
-for local availability should also exist in `~/Mercury Writer Documents` on the
-machine you intend to use without the network.
-
-## Files and safety
-
-Mercury deliberately uses several layers:
-
-```text
-continuous      browser local autosave
-periodic        server recovery history
-canonical       revisioned Mercury Library
-offline         Mercury Writer Documents replica
-portable        explicit .mercury project file
+```sh
+mercury conflicts
+mercury resolve "My Novel" CONFLICT_REVISION_ID
 ```
 
-Revision conflicts preserve both branches. Duplicate project cleanup archives
-the removed identity first. Explicit project deletion uses recoverable trash.
-These systems are complementary rather than substitutes for ordinary backups.
+Resolve explicitly chooses that draft and creates a new revision acknowledging
+both branches. Both originals remain in history. Inspect conflict JSON and
+merge text manually first if both drafts contain work you need.
 
-## Updating
+Deletion affects this Library only and stays deleted through subsequent sync;
+Recently Deleted restores it. A factory reset makes its safety archive and
+turns sync off to prevent immediate repopulation. Keep independent backups:
+replication can also distribute mistaken edits.
 
-With the recommended Git checkout:
+Exchange batches are bounded to 6 MiB; oversized individual revisions report an
+error and need manual export. Folder organization and availability preferences
+stay local. Browser-only endpoints need a local Mercury server for durable
+offline replicas. Browser storage is a crash buffer, not that durable replica.
 
-```bash
-cd ~/Local-Labs/Mercury-Writer
-git pull
-bash install_mercury.sh
+## AI and research
+
+Mercury keeps its own writing prompts, context and project memory. When LOOK's
+installed Fabric client is available, it lists trusted nodes' models and uses
+the client for authenticated inference. Local/configured Ollama is the fallback.
+User config precedes bundled defaults: `~/.config/mercury/ai.json`, or explicit
+`MERCURY_AI_CONFIG`. Web research tries Fabric SearXNG before optional Ollama
+search with an existing `OLLAMA_API_KEY`. Fabric search needs no account/key.
+Manuscript sync does not merge Mercury memory into LO memory.
+
+## LOOK Note links
+
+Use **Project → Copy project link for LOOK Notes**, or `mercury link "My Novel"`.
+Paste `[My Novel](mercury:PROJECT_ID)` beside research and file references.
+Updated LOOK resolves the stable ID through the local library and opens the
+browser project. Rename/move the manuscript without breaking its link. A missing
+local replica produces a next step; opening a link never creates a replacement.
+
+## Verification
+
+```sh
+python3 -m unittest discover -s tests -v
+node tests/browser_saves.cjs
 ```
 
-Application updates and manuscript data are intentionally separate.
-
-## Requirements
-
-Required:
-
-- modern browser
-- Python 3
-
-For local AI:
-
-- Ollama
-- at least one compatible chat model
-
-Optional:
-
-- Chrome/Chromium-family browser for the preferred PDF path
-- Ollama API key for web search
-- Tailscale for private Fabric access
-- Neovim for the terminal editing workflow
-
-Mercury's Python server uses the standard library and the application has no
-required third-party Python or JavaScript packages.
-
-## Screenshots
-
-The repository README expects these existing image paths:
-
-```text
-screenshots/MercuryWriter_Dark_Editor.png
-screenshots/MercuryWriter_Light_Bookview.png
-screenshots/MercuryWriter_Custom_AI.png
-screenshots/MercuryWriter_iOS_Tailscale.png
-```
-
-## Credits
-
-Mercury Writer was built around the conviction that a serious writing tool can
-still be small, understandable, local, and owned by the person doing the
-writing.
-
-**The manuscript is the product. The software should get out of its way.**
-
-
-## Interactive Library CLI
-
-`mercury` or `mercury library` now opens the project-management surface rather
-than printing a passive report. It supports project and directory creation,
-navigation, filtering, rename, move, local/offline policy, recoverable deletion,
-browser launch, and direct Neovim editing.
-
-```text
-↑↓       select
-Enter    enter directory / edit project
-←        parent directory
-n        new project
-N        new directory
-r        rename
-m        move project
-l        make local
-x        remove local copy
-d        recoverable delete
-/        filter
-o        open Mercury Writer in browser
-q        quit
-```
-
-Library directories are organizational metadata, not filesystem identity.
-Moving or renaming a project never changes its stable project ID.
-
-The launcher also treats a healthy Mercury already listening on port 8765 as
-success and reuses it rather than attempting a second server bind. The visible
-browser version is now read from the server's single runtime `VERSION` value.
-
-
-### 1.5.1 display and launch repair
-
-The server now derives its root HTML filename from the runtime `VERSION` value.
-The installer removes obsolete release HTML files from the application folder,
-while leaving manuscript, revision, history, memory, configuration, and Library
-data untouched. The launcher only reuses a server when it is the same installed
-version; an older Mercury process is restarted during launch.
-
-The save-state text was moved out of the crowded top-right toolbar and into the
-bottom status bar.
-
-### 1.5.2 library UX and documentation
-
-- Mercury Library now exposes manuscript statistics, author, project/revision identity, update time, and local/Fabric availability in a selection-driven detail pane.
-- `mercury library` uses the same richer metadata and keeps the selected authority for the UI session instead of rediscovering the Fabric on every arrow key.
-- Delete means delete the Library project and its local replica together (recoverably). Remove Local means keep the Fabric project but remove this node's offline replica.
-- Browser help and Saving & Recovery text now describe the current crash-buffer, canonical commit, recovery snapshot, Always Local replica, and Shift+Arrow navigation behavior.
-
-Terminology: **Project** is the manuscript; **Library** is the set of projects Mercury knows; **Local** means an offline Documents replica exists on this node; **Always Local** means Mercury maintains that replica; **Fabric Only** means the project is known but has no offline Documents replica here.
-
-### 1.5.4 trash recovery
-
-Deleted Library projects are now recoverable from **Recently Deleted** in the browser or **T · Trash** in `mercury library`. Restore preserves the project identity and revision history and restores a preserved local replica when one was deleted with the project. Permanent deletion is a separate explicit `DELETE` operation.
+Tests use disposable storage and cover concurrent saves, offline ancestry,
+conflicts/resolution, deletion/reset, terminal recovery, installer preservation,
+both terminal desks, and browser save/poll races. Neovim's test skips if absent.

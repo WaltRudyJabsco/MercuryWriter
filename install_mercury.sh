@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${1:-}" == "--minimal" ]]; then
+  shift
+  exec python3 "$SOURCE_DIR/install_core.py" "$@"
+fi
+
 OS_NAME="$(uname -s)"
 case "$OS_NAME" in
   Darwin)
@@ -74,9 +80,12 @@ cp "$HTML_FILE" "$INSTALL_DIR/"
 cp "$SERVER_FILE" "$INSTALL_DIR/mercury_server.py"
 cp "$SOURCE_DIR/mercury" "$INSTALL_DIR/mercury"
 chmod 755 "$INSTALL_DIR/mercury"
-for extra in README.txt README.md LICENSE mercury_ai.json; do
+for extra in README.txt README.md LICENSE mercury_fabric.py mercury_sync.py mercury_session.py mercury_desk.py mercury_desk.lua install_core.py; do
   [[ -f "$SOURCE_DIR/$extra" ]] && cp "$SOURCE_DIR/$extra" "$INSTALL_DIR/$extra"
 done
+
+# AI configuration is personal and survives upgrades.
+if [[ ! -f "$INSTALL_DIR/mercury_ai.json" ]]; then cp "$SOURCE_DIR/mercury_ai.json" "$INSTALL_DIR/mercury_ai.json"; fi
 
 if ! command -v brew >/dev/null 2>&1; then
   say "Homebrew is not installed."
@@ -215,7 +224,7 @@ else
 fi
 
 LOCAL_URL="http://127.0.0.1:8765"
-EXPECTED_VERSION="1.5.4"
+EXPECTED_VERSION="1.6.0"
 if command -v curl >/dev/null 2>&1; then
   RUNNING_INFO="$(curl -fsS "$LOCAL_URL/api/version" 2>/dev/null || true)"
   if printf '%s' "$RUNNING_INFO" | grep -q '"Mercury Writer"'; then

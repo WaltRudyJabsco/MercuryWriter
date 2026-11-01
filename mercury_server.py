@@ -16,11 +16,15 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote, unquote
 import json, os, sys, re, math, shutil, subprocess, tempfile, time, hashlib, uuid, threading
+from contextlib import contextmanager
+import fcntl
 from datetime import datetime
+import mercury_sync
+import mercury_fabric
 
-VERSION="1.5.4"
+VERSION="1.6.0"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
@@ -40,6 +44,24 @@ REVISION_DIR=STATE_DIR / "revisions"
 CONFLICT_DIR=STATE_DIR / "conflicts"
 WORKSPACE_ROOT=ROOT / "workspace"
 STATE_LOCK=threading.RLock()
+_STORAGE_CONTEXT=threading.local()
+
+@contextmanager
+def store_transaction():
+    # Threads and a second server process must agree on the same expected head.
+    with STATE_LOCK:
+        depth=getattr(_STORAGE_CONTEXT,"depth",0)
+        descriptor=None
+        if depth==0:
+            ROOT.mkdir(parents=True,exist_ok=True)
+            descriptor=os.open(ROOT/".mercury.lock",os.O_CREAT|os.O_RDWR,0o600)
+            fcntl.flock(descriptor,fcntl.LOCK_EX)
+        _STORAGE_CONTEXT.depth=depth+1
+        try:yield
+        finally:
+            _STORAGE_CONTEXT.depth=depth
+            if descriptor is not None:
+                fcntl.flock(descriptor,fcntl.LOCK_UN);os.close(descriptor)
 LIBRARY_DIR=ROOT/"library"; LIBRARY_INDEX=LIBRARY_DIR/"library.json"
 CONFIG_FILE=ROOT/"mercury_config.json"; DEFAULT_DOCUMENTS_DIR=Path.home()/"Mercury Writer Documents"
 EPOCH_FILE=ROOT/"mercury_epoch.json"
@@ -74,7 +96,7 @@ def _factory_reset():
     The epoch is written last. Browsers use it to reject pre-reset localStorage so an
     old tab cannot silently republish a deleted manuscript.
     """
-    with STATE_LOCK:
+    with store_transaction():
         stamp=datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
         RESET_BACKUP_DIR.mkdir(parents=True,exist_ok=True)
         stage=Path(tempfile.mkdtemp(prefix="mercury-reset-"))
@@ -99,6 +121,7 @@ def _factory_reset():
                     try:child.unlink()
                     except FileNotFoundError:pass
         docs.mkdir(parents=True,exist_ok=True)
+        mercury_sync.configure(sys.modules[__name__],False)
         new_epoch=uuid.uuid4().hex
         _atomic_json(EPOCH_FILE,{"epoch":new_epoch,"reset_at":datetime.now().astimezone().isoformat(timespec="seconds"),"backup":archive})
         LIBRARY_DIR.mkdir(parents=True,exist_ok=True)
@@ -157,9 +180,14 @@ def _fabric_selection():
 
 def _atomic_json(path,data):
     path.parent.mkdir(parents=True,exist_ok=True)
-    tmp=path.with_suffix(path.suffix+".tmp")
-    tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
-    os.replace(tmp,path)
+    fd,name=tempfile.mkstemp(prefix=path.name+".",dir=path.parent)
+    try:
+        with os.fdopen(fd,"w",encoding="utf-8") as stream:
+            json.dump(data,stream,ensure_ascii=False,indent=2)
+            stream.flush();os.fsync(stream.fileno())
+        os.replace(name,path)
+    finally:
+        if os.path.exists(name):os.unlink(name)
 
 def _project_digest(project):
     payload=json.dumps(project,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
@@ -170,6 +198,11 @@ def _new_revision_id():
     return datetime.now().astimezone().strftime("%Y%m%dT%H%M%S.%f%z")+"-"+uuid.uuid4().hex[:12]
 
 def _load_revision():
+    if CANONICAL_PROJECT.exists():
+        try:
+            pid=json.loads(CANONICAL_PROJECT.read_text()).get("project_id")
+            if pid and _lrev(pid):return _lrev(pid)
+        except (ValueError,OSError):pass
     if not REVISION_FILE.exists(): return None
     try:return json.loads(REVISION_FILE.read_text(encoding="utf-8"))
     except Exception:return None
@@ -195,27 +228,20 @@ def _save_conflict(project,parent,source,current):
     return str(path),meta
 
 def _save_canonical_project(project,parent_revision=None,source="server",force=False):
-    if not isinstance(project,dict) or not isinstance(project.get("chapters"),list): raise ValueError("Invalid Mercury project")
-    with STATE_LOCK:
-        current=_load_revision()
-        digest=_project_digest(project)
-        if current and current.get("content_sha256")==digest:
-            return {"saved":False,"revision":current,"reason":"unchanged"}
-        current_id=current.get("revision_id") if current else None
-        if current and not force and parent_revision!=current_id:
-            path,branch=_save_conflict(project,parent_revision,source,current)
-            return {"saved":False,"conflict":True,"revision":current,"branch_revision":branch,"conflict_path":path}
-        meta=_revision_envelope(project,current_id,source)
-        _atomic_json(CANONICAL_PROJECT,project)
-        _atomic_json(REVISION_FILE,meta)
-        _save_revision_copy(project,meta)
-        return {"saved":True,"revision":meta}
+    # Browser and terminal saves share one per-project revision lineage.
+    with store_transaction():
+        result=_lcommit(project,parent_revision,source,force)
+        if not result.get("conflict"):
+            _atomic_json(CANONICAL_PROJECT,project)
+            _atomic_json(REVISION_FILE,result["revision"])
+        return result
+
 
 def _load_canonical_project():
     if not CANONICAL_PROJECT.exists(): return None
     data=json.loads(CANONICAL_PROJECT.read_text(encoding="utf-8"))
     if not isinstance(data,dict) or not isinstance(data.get("chapters"),list): raise ValueError("Invalid canonical Mercury project")
-    return data
+    return _lproj(data.get("project_id")) or data
 
 def _canonical_state():
     return {"project":_load_canonical_project(),"revision":_load_revision()}
@@ -300,7 +326,7 @@ def _llib():
  return {"format":"mercury-library-1","projects":[]}
 def _pid(p):
  x=p.get("project_id") or p.get("id")
- if x:return str(x)
+ if x:p["project_id"]=str(x);return str(x)
  try:
   if "_content_identity" in globals():
    title=str(p.get("title","")).strip().casefold();incoming=_content_identity(p)
@@ -310,35 +336,93 @@ def _pid(p):
      p["project_id"]=item["project_id"];return str(item["project_id"])
  except Exception:pass
  x=uuid.uuid4().hex;p["project_id"]=x;return str(x)
-def _lf(pid,n):return LIBRARY_DIR/"projects"/str(pid)/n
+def _lf(pid,n):
+ if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",str(pid or "")):raise ValueError("Invalid project ID")
+ return LIBRARY_DIR/"projects"/str(pid)/n
 def _lproj(pid):
- try:return json.loads(_lf(pid,"project.mercury").read_text())
- except:return None
+ try:
+  revision=_lrev(pid)
+  if revision:
+   path=_lf(pid,"revisions")/(revision["revision_id"]+".json")
+   if path.exists():return json.loads(path.read_text())["project"]
+  return json.loads(_lf(pid,"project.mercury").read_text())
+ except (OSError,ValueError,KeyError):return None
+
 def _lrev(pid):
  try:return json.loads(_lf(pid,"revision.json").read_text())
  except:return None
-def _mirror_docs(p,r):
- c=_mcfg();root=Path(c["documents_dir"]);root.mkdir(parents=True,exist_ok=True);name=re.sub(r"[^A-Za-z0-9._ -]+","",p.get("title","Untitled")).strip() or "Untitled";pid=_pid(p);d=root/name
- if d.exists():
-  try:
-   meta=json.loads((d/"mercury-replica.json").read_text())
-   if meta.get("project_id")!=pid:d=root/f"{name} [{pid[:8]}]"
-  except Exception:pass
- d.mkdir(parents=True,exist_ok=True)
- _atomic_json(d/"project.mercury",p);_atomic_json(d/"mercury-replica.json",{"project_id":pid,"revision":r,"node":c["node_name"],"mirrored_at":datetime.now().astimezone().isoformat(timespec="seconds")})
-def _lcommit(p,parent=None,source="server",force=False):
- if not isinstance(p,dict) or not isinstance(p.get("chapters"),list):raise ValueError("Invalid Mercury project")
- pid=_pid(p);cur=_lrev(pid);digest=_project_digest(p)
- if cur and cur.get("content_sha256")==digest:return {"saved":False,"project_id":pid,"revision":cur,"reason":"unchanged"}
- curid=cur.get("revision_id") if cur else None
- if cur and not force and parent!=curid:
-  meta=_revision_envelope(p,parent,source);d=_lf(pid,"conflicts");d.mkdir(parents=True,exist_ok=True);path=d/(meta["revision_id"]+".json");_atomic_json(path,{"revision":meta,"conflicts_with":cur,"project":p});return {"saved":False,"conflict":True,"project_id":pid,"revision":cur,"conflict_path":str(path)}
- meta=_revision_envelope(p,curid,source);d=_lf(pid,"project.mercury").parent;d.mkdir(parents=True,exist_ok=True);_atomic_json(_lf(pid,"project.mercury"),p);_atomic_json(_lf(pid,"revision.json"),meta);rr=_lf(pid,"revisions");rr.mkdir(exist_ok=True);_atomic_json(rr/(meta["revision_id"]+".json"),{"revision":meta,"project":p})
- lib=_llib();item=next((x for x in lib["projects"] if x.get("project_id")==pid),None)
- if item is None:item={"project_id":pid,"availability":"always-local"};lib["projects"].append(item)
- item.update({"title":p.get("title","Untitled"),"author":p.get("author",""),"revision_id":meta["revision_id"],"content_sha256":meta["content_sha256"],"updated_at":meta["created_at"]});LIBRARY_DIR.mkdir(parents=True,exist_ok=True);_atomic_json(LIBRARY_INDEX,lib)
- if item.get("availability")!="fabric-only":_mirror_docs(p,meta)
- return {"saved":True,"project_id":pid,"revision":meta}
+def _mirror_docs(project,revision):
+    config=_mcfg();root=Path(config["documents_dir"])
+    root.mkdir(parents=True,exist_ok=True)
+    pid=_pid(project)
+    name=re.sub(r"[^A-Za-z0-9._ -]+","",project.get("title","Untitled")).strip() or "Untitled"
+    matches=_documents_replica_dirs(pid)
+    destination=matches[0] if matches else root/name
+    if not matches and destination.exists():destination=root/f"{name} [{pid}]"
+    destination.mkdir(parents=True,exist_ok=True)
+    _atomic_json(destination/"project.mercury",project)
+    _atomic_json(destination/"mercury-replica.json",{"project_id":pid,"revision":revision,
+        "node":config["node_name"],"mirrored_at":datetime.now().astimezone().isoformat(timespec="seconds")})
+
+def _validate_project(project):
+    if not isinstance(project,dict) or not isinstance(project.get("chapters"),list):
+        raise ValueError("Invalid Mercury project")
+    for field in ("title","author"):
+        if not isinstance(project.get(field,""),str):raise ValueError("Invalid project "+field)
+    chapter_ids=set();scene_ids=set()
+    for chapter in project["chapters"]:
+        if not isinstance(chapter,dict) or not isinstance(chapter.get("scenes"),list):raise ValueError("Invalid manuscript chapter")
+        identity=chapter.get("id")
+        if not isinstance(identity,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",identity) or identity in chapter_ids:raise ValueError("Invalid or duplicate chapter ID")
+        chapter_ids.add(identity)
+        for field in ("title","notes"):
+            if not isinstance(chapter.get(field,""),str):raise ValueError("Invalid chapter "+field)
+        for scene in chapter["scenes"]:
+            if not isinstance(scene,dict):raise ValueError("Invalid manuscript scene")
+            identity=scene.get("id")
+            if not isinstance(identity,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",identity) or identity in scene_ids:raise ValueError("Invalid or duplicate scene ID")
+            scene_ids.add(identity)
+            for field in ("title","text","notes"):
+                if not isinstance(scene.get(field,""),str):raise ValueError("Invalid scene "+field)
+
+
+def _lcommit(project,parent=None,source="server",force=False,merge_parents=None):
+    _validate_project(project)
+    pid=_pid(project)
+    if pid in mercury_sync.excluded(sys.modules[__name__]):raise ValueError("Project was deleted here; restore it from Recently Deleted before editing")
+    current=_lrev(pid)
+    digest=_project_digest(project)
+    if current and not merge_parents and current.get("content_sha256")==digest:
+        return {"saved":False,"project_id":pid,"revision":current,"reason":"unchanged"}
+    current_id=current.get("revision_id") if current else None
+    if current and not force and parent!=current_id:
+        meta=_revision_envelope(project,parent,source)
+        record={"revision":meta,"project":project}
+        _atomic_json(_lf(pid,"revisions")/(meta["revision_id"]+".json"),record)
+        path=_lf(pid,"conflicts")/(meta["revision_id"]+".json")
+        _atomic_json(path,{**record,"conflicts_with":current})
+        return {"saved":False,"conflict":True,"project_id":pid,"revision":current,"conflict_path":str(path)}
+    meta=_revision_envelope(project,current_id,source)
+    if merge_parents:meta["merge_parents"]=merge_parents
+    # Persist the immutable manuscript before advancing its head. Readers resolve
+    # the head to that snapshot, so a crash cannot pair new metadata with old text.
+    _atomic_json(_lf(pid,"revisions")/(meta["revision_id"]+".json"),{"revision":meta,"project":project})
+    _atomic_json(_lf(pid,"revision.json"),meta)
+    _atomic_json(_lf(pid,"project.mercury"),project)
+    lib=_llib()
+    item=next((item for item in lib["projects"] if item.get("project_id")==pid),None)
+    if item is None:
+        item={"project_id":pid,"availability":"always-local"}
+        lib["projects"].append(item)
+    item.update(title=project.get("title","Untitled"),author=project.get("author",""),
+                revision_id=meta["revision_id"],content_sha256=meta["content_sha256"],updated_at=meta["created_at"])
+    _atomic_json(LIBRARY_INDEX,lib)
+    result={"saved":True,"project_id":pid,"revision":meta}
+    if item.get("availability")!="fabric-only":
+        try:_mirror_docs(project,meta)
+        except OSError as error:result["replica_error"]="Local revision saved; Documents copy needs attention: "+str(error)
+    return result
+
 def _lboot():
  LIBRARY_DIR.mkdir(parents=True,exist_ok=True);Path(_mcfg()["documents_dir"]).mkdir(parents=True,exist_ok=True)
  if not _llib()["projects"] and CANONICAL_PROJECT.exists():
@@ -407,6 +491,7 @@ def _delete_library_project(pid):
   dst.parent.mkdir(parents=True,exist_ok=True);shutil.move(str(d),str(dst));doc_trash.append(str(dst))
  lib["projects"]=[x for x in lib.get("projects",[]) if x.get("project_id")!=pid]
  _atomic_json(LIBRARY_INDEX,lib)
+ mercury_sync.exclude(sys.modules[__name__],pid,True)
  tomb={"project_id":pid,"title":item.get("title"),"deleted_at":datetime.now().astimezone().isoformat(timespec="seconds"),
        "library_trash":str(trash),"documents_trash":doc_trash,"library_item":dict(item)}
  _atomic_json(LIBRARY_DIR/"trash"/f"{stamp}-{pid}.tombstone.json",tomb)
@@ -442,6 +527,7 @@ def _restore_library_project(trash_id):
  dst=LIBRARY_DIR/"projects"/str(pid);dst.parent.mkdir(parents=True,exist_ok=True)
  if dst.exists():raise FileExistsError("A project directory with this identity already exists")
  shutil.move(str(src),str(dst))
+ mercury_sync.exclude(sys.modules[__name__],pid,False)
  restored_docs=[]
  try:
   for raw in t.get("documents_trash",[]):
@@ -646,7 +732,7 @@ def _load_ai_config():
     """Preferred Ollama host + fallbacks, with local Ollama always available."""
     cfg={}
     explicit=os.environ.get("MERCURY_AI_CONFIG")
-    candidates=[Path(explicit).expanduser()] if explicit else [AI_CONFIG_LOCAL,AI_CONFIG_USER]
+    candidates=[Path(explicit).expanduser()] if explicit else [AI_CONFIG_USER,AI_CONFIG_LOCAL]
     for path in candidates:
         try:
             if path.exists():
@@ -715,6 +801,7 @@ def _available_models():
         if not host["reachable"]: continue
         for name in host["models"]:
             by_name.setdefault(name,[]).append(host["name"])
+    for name,host in mercury_fabric.models(get_json):by_name.setdefault(name,[]).append(host)
     models=[{"name":name,"hosts":names} for name,names in sorted(by_name.items(),key=lambda x:x[0].lower())]
     active=next((h for h in hosts if h["reachable"]),None)
     fabric=_fabric_selection()
@@ -726,7 +813,7 @@ def _available_models():
         "mercury":{
             "active_host":active["name"] if active else None,
             "hosts":[{"name":h["name"],"reachable":h["reachable"],"models":len(h["models"])} for h in hosts],
-            "web_ready":bool(os.environ.get("OLLAMA_API_KEY")),
+            "web_ready":bool(os.environ.get("OLLAMA_API_KEY")) or mercury_fabric.web_ready(get_json),
             "fabric_model":fabric_model,
             "fabric_source":fabric.get("source")
         }
@@ -740,6 +827,12 @@ def _candidate_hosts(model):
 def ollama_chat(model,messages,timeout=240):
     """Route to a host that has the model; fall back if a host disappears."""
     errors=[]
+    try:
+        adapter=mercury_fabric.client()
+        if adapter and mercury_fabric.models(get_json):
+            out=adapter.infer(messages,model=model,timeout=timeout,owner="mercury-writer")
+            return out,{"name":"Fabric · "+str(out.get("fabric_node") or "local")}
+    except Exception as error:errors.append('Fabric: '+str(error))
     for host in _candidate_hosts(model):
         try:
             out=post_json(host["url"]+"/api/chat",{"model":model,"messages":messages,"stream":False},timeout=timeout)
@@ -1036,6 +1129,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def translate_path(self, path):
+        path=unquote(urlparse(path).path)
         # Serve only from this folder. For "/" prefer the bundled Mercury file,
         # but fall back to any Mercury_Writer*.html file so renaming a release
         # cannot break the launcher.
@@ -1049,7 +1143,12 @@ class Handler(SimpleHTTPRequestHandler):
             if candidates:
                 return str(candidates[-1])
             return str(preferred)
-        return str(ROOT / path.split("?",1)[0].lstrip("/"))
+        candidate=(ROOT/path.lstrip("/")).resolve()
+        public_root=ROOT.resolve()
+        allowed=(candidate.parent==public_root and candidate.name.startswith("Mercury_Writer") and candidate.suffix==".html") or candidate.is_relative_to(public_root/"screenshots")
+        if not candidate.is_relative_to(public_root) or not allowed:
+            return str(public_root/".missing-public-resource")
+        return str(candidate)
 
     def send_json(self, obj, status=200):
         data=jdump(obj)
@@ -1067,7 +1166,14 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers(); self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.startswith(("/api/library","/api/project/","/api/sync/status")):
+            with store_transaction():self._do_GET()
+        else:self._do_GET()
+
+    def _do_GET(self):
         parsed=urlparse(self.path)
+        if parsed.path=="/api/sync/status":
+            self.send_json(mercury_sync.status(sys.modules[__name__]));return
         if parsed.path=="/api/version":
             self.send_json({"name":"Mercury Writer","version":VERSION});return
         if parsed.path=="/api/reset/status":
@@ -1102,7 +1208,9 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"error":str(e)},400)
             return
         if parsed.path=="/api/project/current":
-            try:self.send_json(_canonical_state())
+            try:
+                pid=(parse_qs(parsed.query).get("id") or [""])[0]
+                self.send_json({"project":_lproj(pid),"revision":_lrev(pid)} if pid else _canonical_state())
             except Exception as e:self.send_json({"error":str(e)},500)
             return
         if parsed.path=="/api/workspace/status":
@@ -1124,16 +1232,31 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({
                 "active_host":active["name"] if active else None,
                 "hosts":[{"name":h["name"],"url":h["url"],"reachable":h["reachable"],"models":len(h["models"])} for h in hosts],
-                "web_ready":bool(os.environ.get("OLLAMA_API_KEY")),
+                "web_ready":bool(os.environ.get("OLLAMA_API_KEY")) or mercury_fabric.web_ready(get_json),
                 "memory_file":str(MEMORY_FILE)
             })
             return
         return super().do_GET()
 
     def do_POST(self):
+        if self.path.startswith(("/api/library/","/api/project/","/api/workspace/","/api/reset")) and self.path!="/api/library/sync":
+            with store_transaction():self._do_POST()
+        else:self._do_POST()
+
+    def _do_POST(self):
         try:
             n=int(self.headers.get("Content-Length","0"))
+            if n<0 or n>8*1024*1024:
+                self.send_json({"error":"Request exceeds 8 MiB"},413);return
             body=json.loads(self.rfile.read(n) or b"{}")
+            if self.path=="/api/sync/resolve":
+                self.send_json(mercury_sync.resolve(sys.modules[__name__],body.get("project_id"),body.get("revision_id"),body.get("base_revision")));return
+            if self.path=="/api/sync/config":
+                self.send_json(mercury_sync.configure(sys.modules[__name__],body.get("enabled")));return
+            if self.path=="/api/sync/export":
+                self.send_json(mercury_sync.export(sys.modules[__name__],body.get("have",[])));return
+            if self.path=="/api/sync/exchange":
+                self.send_json(mercury_sync.exchange(sys.modules[__name__],body));return
             if self.path=="/api/reset":
                 if body.get("confirm")!="RESET MERCURY":self.send_json({"error":"Confirmation must be RESET MERCURY"},400);return
                 try:self.send_json(_factory_reset())
@@ -1204,9 +1327,6 @@ class Handler(SimpleHTTPRequestHandler):
             if self.path=="/api/project/commit":
                 project=body.get("project")
                 result=_save_canonical_project(project,body.get("parent_revision"),body.get("source") or "browser")
-                if not result.get("conflict"):
-                    try:_lcommit(project,None,body.get("source") or "browser",True)
-                    except Exception as e:print("Mercury library mirror warning:",e)
                 self.send_json(result,409 if result.get("conflict") else 200)
                 return
             if self.path=="/api/history/save":
@@ -1258,25 +1378,18 @@ class Handler(SimpleHTTPRequestHandler):
 
             if use_web and should_search_web(prompt):
                 web_status="searching"
-                key=os.environ.get("OLLAMA_API_KEY")
-                if key:
+                try:
+                    res=get_json(mercury_fabric.NODE+"/v1/web/search?q="+quote(prompt)+"&limit=6",timeout=12)
+                    if res.get("error") or not res.get("results"):raise ValueError(res.get("error") or "No Fabric search results")
+                except Exception:
+                    key=os.environ.get("OLLAMA_API_KEY")
                     try:
-                        res=post_json(WEB_ENDPOINT,{"query":prompt},headers={"Authorization":"Bearer "+key},timeout=30)
-                        # Keep only a compact search digest.
-                        items=res.get("results",res if isinstance(res,list) else [])
-                        chunks=[]
-                        for item in items[:6] if isinstance(items,list) else []:
-                            if isinstance(item,dict):
-                                chunks.append(f"{item.get('title','')}\n{item.get('content') or item.get('snippet','')}\n{item.get('url','')}")
-                        web_text="\n\n".join(chunks)
-                        web_used=bool(web_text)
-                        web_status="used" if web_used else "empty"
-                    except Exception as e:
-                        web_text=f"[Web search unavailable: {e}]"
-                        web_status="unavailable"
-                else:
-                    web_text="[Web search requested, but OLLAMA_API_KEY is not present in the launch environment.]"
-                    web_status="no_key"
+                        res=post_json(WEB_ENDPOINT,{"query":prompt},headers={"Authorization":"Bearer "+key},timeout=30) if key else {"results":[]}
+                    except Exception:res={"results":[]}
+                items=res.get("results",[]) if isinstance(res,dict) else res
+                web_text="\n\n".join(f"{item.get('title','')}\n{item.get('content') or item.get('snippet','')}\n{item.get('url','')}" for item in (items or [])[:6] if isinstance(item,dict))
+                web_used=bool(web_text)
+                web_status="used" if web_used else "unavailable"
             elif use_web:
                 web_status="skipped"
 
@@ -1337,7 +1450,21 @@ Know when the best response is a short one."""
         except Exception as e:
             self.send_json({"error":str(e)},500)
 
+def _serialized(fn):
+    def call(*args,**kwargs):
+        with store_transaction():return fn(*args,**kwargs)
+    return call
+
+_lcommit=_serialized(_lcommit)
+_lapply=_serialized(_lapply)
+
 if __name__=="__main__":
+    import argparse
+    parser=argparse.ArgumentParser(description="Mercury Writer local server")
+    parser.add_argument("--host",default=HOST)
+    parser.add_argument("--port",type=int,default=PORT)
+    args=parser.parse_args()
+    HOST,PORT=args.host,args.port
     _lboot()
     os.chdir(ROOT)
     httpd=ThreadingHTTPServer((HOST,PORT),Handler)

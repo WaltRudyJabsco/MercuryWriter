@@ -383,6 +383,36 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
 .md-h3{font-size:1.04em;margin:.9em 0 .5em!important}
 .save-capability{margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:10px;line-height:1.45;color:var(--muted)}
 
+
+/* Two views share scene objects; each navigator owns its selection and scroll. */
+.workspace.split-view{grid-template-rows:minmax(0,1fr) 8px minmax(0,1fr)}
+.workspace.split-view>.sidebar{grid-column:1;grid-row:1;overflow:hidden}
+.workspace.split-view>main.editor-wrap{grid-column:2;grid-row:1;min-height:0}
+.workspace.split-view>.inspector{grid-column:3;grid-row:1 / 4}
+.split-sidebar{grid-column:1;grid-row:3;display:flex;flex-direction:column;min-height:0;background:var(--panel);border-right:1px solid var(--line);overflow:hidden}
+.split-editor-wrap{grid-column:2;grid-row:3;display:flex;flex-direction:column;min-height:0;min-width:0}
+.split-editor-wrap .editor{flex:1;min-height:0;padding-top:22px;padding-bottom:45px}
+.split-editor-wrap .dochead{flex-shrink:0}
+.split-divider{grid-column:1 / 3;grid-row:2;background:var(--line);cursor:row-resize;touch-action:none;border:0;padding:0}
+.split-divider:hover,.split-divider:focus-visible{background:var(--accent);outline:0}
+.split-sidebar .tree{flex:1;min-height:0}
+.split-sidebar button.tree-item{display:block;background:transparent;color:var(--ink);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.split-sidebar button.tree-item.active{background:var(--panel2);border-left-color:var(--accent)}
+.split-note{font-size:10px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--line)}
+.workspace.split-view .editor{padding-left:24px;padding-right:24px}
+@media(max-width:1099px){
+ .workspace.split-view{grid-template-columns:170px minmax(0,1fr)}
+ .workspace.split-view>.sidebar{position:static!important;transform:none!important;box-shadow:none;width:auto;z-index:auto}
+ .workspace.split-view>.inspector{grid-column:auto;grid-row:auto}
+}
+@media(max-width:520px){
+ .workspace.split-view{grid-template-columns:112px minmax(0,1fr)}
+ .split-sidebar .tree-item,.workspace.split-view>.sidebar .tree-item{font-size:11px;padding-left:4px;min-width:0}
+ .split-sidebar .tree-item span,.workspace.split-view>.sidebar .tree-item span{overflow:hidden;text-overflow:ellipsis}
+ .workspace.split-view .editor{padding:12px;font-size:16px}
+ .split-editor-wrap .dochead{padding:0 6px}.split-editor-wrap .title-input{font-size:14px}
+ .split-editor-wrap .btn{font-size:10px;padding:4px}
+}
 </style>
 </head>
 <body>
@@ -432,9 +462,10 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
     <div class="sep optional"></div>
     <button class="btn optional" id="zoomOut">−</button><span id="zoomLabel" class="badge">100%</span><button class="btn optional" id="zoomIn">＋</button>
     <div class="spacer"></div>
-    
+
     <button class="btn" id="viewEditor">Editor</button>
     <button class="btn" id="viewPages">Book View</button>
+    <button class="btn" id="splitBtn" aria-pressed="false" title="Two stacked writing panes (Ctrl/Cmd+Shift+\\)">Split</button>
     <button class="btn" id="focusBtn">Focus</button><button class="btn" id="themeBtn" data-action="themeEditor" title="Theme">Theme</button>
   </div>
 
@@ -472,6 +503,19 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
       </div>
     </main>
 
+
+    <button id="splitDivider" class="split-divider hidden" role="separator" aria-label="Resize writing panes" aria-orientation="horizontal" aria-valuemin="20" aria-valuemax="80" aria-valuenow="50"></button>
+    <aside id="splitSidebar" class="split-sidebar hidden" aria-label="Lower manuscript navigator">
+      <div class="panel-head">Manuscript · lower</div>
+      <div id="splitTree" class="tree"></div>
+    </aside>
+    <section id="splitPane" class="split-editor-wrap hidden" aria-label="Lower writing pane">
+      <div class="dochead"><input id="splitTitle" class="title-input" aria-label="Lower scene title" spellcheck="false"><button class="btn" id="splitSwap" title="Swap panes to use upper-pane AI, notes and formatting">Swap</button><button class="btn" id="splitClose" aria-label="Close split">×</button></div>
+      <div class="split-note">AI and scene tools use the upper pane. Swap changes the scene they use.</div>
+      <input id="splitFind" class="small-input hidden" style="width:100%" placeholder="Find in lower scene… (Enter / Shift+Enter)" aria-label="Find in lower scene">
+      <textarea id="splitEditor" class="editor" spellcheck="true" aria-label="Lower scene manuscript"></textarea>
+    </section>
+
     <aside class="inspector">
       <button class="drawer-close" id="closeInspectorDrawer" aria-label="Close inspector">×</button>
       <div class="side-tabs">
@@ -505,7 +549,7 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
   <button data-mobile-command="redo"><span>Redo</span></button>
   <button data-mobile-command="find"><span>Find in scene</span><span class="hint">⌘F</span></button>
   <div class="menu-sep"></div>
-  <button data-mobile-command="editor"><span>Editor</span></button>
+  <button data-mobile-command="split" class="btn">Split writing panes</button><button data-mobile-command="editor"><span>Editor</span></button>
   <button data-mobile-command="pages"><span>Book View</span></button>
   <button data-mobile-command="focus"><span>Focus</span></button>
   <button data-mobile-command="theme"><span>Theme…</span></button>
@@ -569,6 +613,7 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
 "use strict";
 const $ = s => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2,10);
+const newProjectId=()=>globalThis.crypto?.randomUUID?.()||(uid()+uid()+Date.now().toString(36));
 const STORAGE = "mercury_writer_project_v1";
 const PREVIOUS_STORAGE = "mercury_writer_previous_project_v1";
 const COLLAPSED_STORAGE = "mercury_writer_collapsed_chapters_v1";
@@ -609,6 +654,9 @@ function openThemeEditor(){
 }
 function closeThemeEditor(){ $("#themePopover").classList.add("hidden") }
 
+let editGeneration=0, savedGeneration=0;
+let splitOpen=false, splitSceneId=null, splitRatio=.5;
+const splitCollapsed=new Set();
 let dirtyTimer=null, serverCommitTimer=null, serverPollTimer=null, canonicalRevision=localStorage.getItem("mercury_revision")||null, commitInFlight=false, applyingRemote=false, activeId=null, currentView="editor", focusMode=false, currentBookPage=0, editorZoom=Number(localStorage.getItem("mercury_editor_zoom"))||1, bookZoom=Number(localStorage.getItem("mercury_book_zoom"))||1, renderedPages=[], lastEditorSelection={start:0,end:0,text:""}, serverHistoryTimer=null, lastServerHistoryAt=null;
 
 const sample = {
@@ -695,7 +743,7 @@ async function syncFabricEpoch(){
   const serverEpoch=d.epoch||"legacy",browserEpoch=localStorage.getItem(MERCURY_EPOCH_STORAGE);
   // A reset changes the epoch. Old browser manuscript state must never republish into the clean Fabric.
   if(browserEpoch && browserEpoch!==serverEpoch || (!browserEpoch && serverEpoch!=="legacy")){
-   localStorage.removeItem(STORAGE);localStorage.removeItem(PREVIOUS_STORAGE);localStorage.removeItem("mercury_revision");
+   localStorage.removeItem(STORAGE);localStorage.removeItem(PREVIOUS_STORAGE);localStorage.removeItem("mercury_revision");localStorage.removeItem("mercury_pending");
    project=clone(sample);activeId=project.chapters[0]?.scenes[0]?.id||null;canonicalRevision=null;
   }
   localStorage.setItem(MERCURY_EPOCH_STORAGE,serverEpoch);mercuryEpochReady=true;return true;
@@ -718,6 +766,9 @@ function findScene(id){
 }
 function active(){return findScene(activeId)}
 function markDirty(){
+ if(!project.project_id)project.project_id=newProjectId();
+ editGeneration++;
+ localStorage.setItem("mercury_pending",JSON.stringify({project_id:project.project_id||null,base_revision:canonicalRevision}));
  $("#saveState").textContent="Autosaving…";
  clearTimeout(dirtyTimer);
  dirtyTimer=setTimeout(()=>{
@@ -733,6 +784,14 @@ function markDirty(){
 async function commitCanonical(source="browser"){
  if(commitInFlight||applyingRemote)return null;
  commitInFlight=true;
+ if(!project.project_id){
+   project.project_id=newProjectId();
+   localStorage.setItem(STORAGE,JSON.stringify(project));
+   localStorage.setItem("mercury_pending",JSON.stringify({project_id:project.project_id,base_revision:canonicalRevision}));
+ }
+ const committingProject=project;
+ const generation=editGeneration;
+ clearTimeout(serverCommitTimer);serverCommitTimer=null;
  try{
    const a=active();
    if(a){
@@ -743,6 +802,7 @@ async function commitCanonical(source="browser"){
    project.modified=new Date().toISOString();
    const r=await fetch("/api/project/commit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({project,parent_revision:canonicalRevision,source})});
    const d=await r.json();
+   if(project!==committingProject)return d;
    if(r.status===409||d.conflict){
      snapshotCurrentProject();
      if(d.revision?.revision_id){canonicalRevision=d.revision.revision_id;localStorage.setItem("mercury_revision",canonicalRevision)}
@@ -753,13 +813,16 @@ async function commitCanonical(source="browser"){
    }
    if(!r.ok)throw new Error(d.error||"Canonical save failed");
    if(d.revision?.revision_id){canonicalRevision=d.revision.revision_id;localStorage.setItem("mercury_revision",canonicalRevision)}
-   $("#saveState").textContent="Saved";
+   savedGeneration=generation;
+   if(editGeneration===generation)localStorage.removeItem("mercury_pending");
+   $("#saveState").textContent=d.replica_error?"Saved · offline copy needs attention":editGeneration===generation?"Saved":"Autosaving…";
+   if(d.replica_error)toast(d.replica_error);
    return d;
  }catch(e){
    console.warn("Canonical Mercury save unavailable:",e);
    $("#saveState").textContent="Saved locally";
    return null;
- }finally{commitInFlight=false}
+ }finally{commitInFlight=false;if(editGeneration>savedGeneration){clearTimeout(serverCommitTimer);serverCommitTimer=setTimeout(()=>commitCanonical("browser"),2000)}}
 }
 async function applyCanonicalProject(remote,revision,announce=true){
  if(!remote||!Array.isArray(remote.chapters))return;
@@ -771,15 +834,20 @@ async function applyCanonicalProject(remote,revision,announce=true){
    const still=project.chapters?.some(c=>c.scenes?.some(s=>s.id===activeId));
    if(!still)activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;
    localStorage.setItem(STORAGE,JSON.stringify(project));
+   savedGeneration=editGeneration;
+   localStorage.removeItem("mercury_pending");
    refreshAll();
    if(announce)toast("Mercury updated from another editor");
  }finally{applyingRemote=false}
 }
 async function pullCanonical(force=false){
+ if(!force&&editGeneration>savedGeneration)return;
+ const generation=editGeneration;
  try{
-   const r=await fetch("/api/project/current",{cache:"no-store"});
+   const r=await fetch("/api/project/current"+(project.project_id?"?id="+encodeURIComponent(project.project_id):""),{cache:"no-store"});
    if(!r.ok)return;
    const d=await r.json(),rid=d.revision?.revision_id||null;
+   if(!force&&generation!==editGeneration)return;
    if(!d.project){
      if(force||!canonicalRevision)await commitCanonical("browser-bootstrap");
      return;
@@ -789,20 +857,36 @@ async function pullCanonical(force=false){
 }
 async function bootstrapCanonical(){
  try{
-   const r=await fetch("/api/project/current",{cache:"no-store"}),d=await r.json();
-   if(d.project){
-     const rid=d.revision?.revision_id||null;
-     if(canonicalRevision && rid===canonicalRevision)return;
-     // The server is authoritative. Preserve an unmatched browser copy as Previous Project.
-     if(canonicalRevision!==rid)snapshotCurrentProject();
-     await applyCanonicalProject(d.project,d.revision,false);
-   }else{
-     await commitCanonical("browser-bootstrap");
+   let pending=null;try{pending=JSON.parse(localStorage.getItem("mercury_pending"))}catch{}
+   if(pending&&(pending.project_id||null)===(project.project_id||null)){
+     canonicalRevision=pending.base_revision||null;editGeneration++;
+     await commitCanonical("browser-offline-recovery");
    }
- }catch(e){console.warn("Mercury server state bootstrap unavailable:",e)}
- clearInterval(serverPollTimer);
- serverPollTimer=setInterval(()=>{if(!commitInFlight&&!document.hidden)pullCanonical(false)},2000);
+   const linked=new URLSearchParams(location.search).get("project");
+   if(linked){
+     if(!/^[A-Za-z0-9_-]{1,128}$/.test(linked))throw new Error("Invalid Mercury project link");
+     const response=await fetch("/api/library/project?id="+encodeURIComponent(linked),{cache:"no-store"});
+     if(!response.ok)throw new Error("Linked manuscript is not local yet. Sync it from a paired writing computer first.");
+     const data=await response.json();
+     if(editGeneration>savedGeneration){toast("Local draft is waiting to save; project link was not opened");return}
+     if(project.project_id!==linked)snapshotCurrentProject();
+     await applyCanonicalProject(data.project,data.revision,false);
+   }else{
+     const generation=editGeneration;
+     const response=await fetch("/api/project/current"+(project.project_id?"?id="+encodeURIComponent(project.project_id):""),{cache:"no-store"}),data=await response.json();
+     if(generation!==editGeneration||editGeneration>savedGeneration)return;
+     if(data.project){
+       const rid=data.revision?.revision_id||null;
+       if(canonicalRevision!==rid){snapshotCurrentProject();await applyCanonicalProject(data.project,data.revision,false)}
+     }else await commitCanonical("browser-bootstrap");
+   }
+ }catch(error){console.warn("Mercury bootstrap:",error);toast(error.message)}
+ finally{
+   clearInterval(serverPollTimer);
+   serverPollTimer=setInterval(()=>{if(!commitInFlight&&!document.hidden)pullCanonical(false)},2000);
+ }
 }
+
 function syncFromEditor(){
  const a=active(); if(!a)return;
  a.scene.text=$("#editor").value;
@@ -881,7 +965,84 @@ function renderTree(){
    add.onclick=()=>addScene(c.id);
    tree.appendChild(add);
  });
+ renderSplit();
 }
+
+function renderSplit(){
+ if(!splitOpen)return;
+ if(!findScene(splitSceneId))splitSceneId=activeId;
+ const scene=findScene(splitSceneId)?.scene;
+ const editor=$("#splitEditor"),title=$("#splitTitle");
+ // Updating only a changed value preserves independent carets and scrolling.
+ if(editor.value!==(scene?.text||""))editor.value=scene?.text||"";
+ if(title.value!==(scene?.title||""))title.value=scene?.title||"";
+ const tree=$("#splitTree"),scroll=tree.scrollTop;tree.replaceChildren();
+ project.chapters.forEach(chapter=>{
+   const item=document.createElement("button");item.className="tree-item chapter";item.style.width="100%";item.style.border="0";item.style.textAlign="left";
+   item.textContent=(splitCollapsed.has(chapter.id)?"▸ ":"▾ ")+chapter.title;
+   item.setAttribute("aria-expanded",!splitCollapsed.has(chapter.id));
+   item.onclick=()=>{if(splitCollapsed.has(chapter.id))splitCollapsed.delete(chapter.id);else splitCollapsed.add(chapter.id);renderSplit()};
+   tree.appendChild(item);
+   if(splitCollapsed.has(chapter.id))return;
+   chapter.scenes.forEach(scene=>{
+     const item=document.createElement("button");item.className="tree-item scene"+(scene.id===splitSceneId?" active":"");item.style.width="100%";item.style.textAlign="left";item.style.borderTop="0";item.style.borderBottom="0";item.style.borderRight="0";
+     item.textContent="• "+scene.title;item.setAttribute("aria-current",scene.id===splitSceneId?"true":"false");
+     item.onclick=()=>{splitSceneId=scene.id;renderSplit();editor.scrollTop=0;editor.focus()};tree.appendChild(item);
+   });
+ });
+ tree.scrollTop=scroll;
+}
+function toggleSplit(force){
+ const opening=typeof force==="boolean"?force:!splitOpen;
+ if(opening){if(focusMode)toggleFocus(false);setView("editor");syncFromEditor()}
+ splitOpen=opening;
+ if(!splitSceneId)splitSceneId=activeId;
+ const workspace=$(".workspace");workspace.classList.toggle("split-view",splitOpen);
+ workspace.style.gridTemplateRows=splitOpen?`${splitRatio}fr 8px ${1-splitRatio}fr`:"";
+ ["splitSidebar","splitPane","splitDivider"].forEach(id=>$("#"+id).classList.toggle("hidden",!splitOpen));
+ $("#splitBtn").classList.toggle("active",splitOpen);$("#splitBtn").setAttribute("aria-pressed",splitOpen);
+ renderSplit();
+}
+function syncSplitEditor(){
+ const scene=findScene(splitSceneId)?.scene;if(!scene)return;
+ scene.text=$("#splitEditor").value;scene.title=$("#splitTitle").value||"Untitled Scene";
+ if(splitSceneId===activeId){
+   if($("#editor").value!==scene.text)$("#editor").value=scene.text;
+   if($("#titleInput").value!==scene.title)$("#titleInput").value=scene.title;
+ }
+ markDirty();renderTree();renderStats();updateStatus();
+}
+function resizeSplit(ratio){
+ splitRatio=Math.max(.2,Math.min(.8,ratio));
+ $(".workspace").style.gridTemplateRows=`${splitRatio}fr 8px ${1-splitRatio}fr`;
+ $("#splitDivider").setAttribute("aria-valuenow",Math.round(splitRatio*100));
+}
+$("#splitBtn").onclick=()=>toggleSplit();$("#splitClose").onclick=()=>toggleSplit(false);
+$("#splitEditor").oninput=syncSplitEditor;$("#splitTitle").oninput=syncSplitEditor;
+$("#splitSwap").onclick=()=>{const other=activeId;selectScene(splitSceneId);splitSceneId=other;renderSplit()};
+$("#splitDivider").onkeydown=event=>{if(["ArrowUp","ArrowDown"].includes(event.key)){event.preventDefault();resizeSplit(splitRatio+(event.key==="ArrowDown"?.05:-.05))}};
+$("#splitDivider").onpointerdown=event=>{
+ const divider=event.currentTarget;divider.setPointerCapture(event.pointerId);
+ divider.onpointermove=move=>{const rect=$(".workspace").getBoundingClientRect();resizeSplit((move.clientY-rect.top)/rect.height)};
+ divider.onpointerup=divider.onpointercancel=()=>{divider.onpointermove=null};
+};
+$("#splitEditor").onkeydown=event=>{
+ if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="f"){
+   event.preventDefault();event.stopPropagation();$("#splitFind").classList.remove("hidden");$("#splitFind").focus();
+ }
+};
+$("#splitFind").onkeydown=event=>{
+ if(event.key==="Escape"){$("#splitFind").classList.add("hidden");$("#splitEditor").focus()}
+ if(event.key!=="Enter")return;
+ event.preventDefault();const editor=$("#splitEditor"),query=event.currentTarget.value.toLocaleLowerCase();if(!query)return;
+ const text=editor.value.toLocaleLowerCase();let pos=event.shiftKey?text.lastIndexOf(query,editor.selectionStart-1):text.indexOf(query,editor.selectionEnd);
+ if(pos<0)pos=event.shiftKey?text.lastIndexOf(query):text.indexOf(query);
+ if(pos>=0){editor.focus();editor.setSelectionRange(pos,pos+query.length)}else toast("No match in lower scene");
+};
+document.addEventListener("keydown",event=>{
+ if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.code==="Backslash"){event.preventDefault();toggleSplit()}
+});
+
 function moveScene(fromId,toId){
  if(fromId===toId)return;
  let fromC,fromIdx,toC,toIdx;
@@ -1135,11 +1296,12 @@ async function restoreServerHistory(id){
    const data=await r.json();
    if(!data.project||!Array.isArray(data.project.chapters))throw new Error("Invalid recovery snapshot");
    snapshotCurrentProject();
-   project=data.project;
+   const sameProject=project.project_id&&project.project_id===data.project.project_id;
+   project=data.project;canonicalRevision=sameProject?canonicalRevision:null;
    activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;
    localStorage.setItem(STORAGE,JSON.stringify(project));
    refreshAll();setView("editor");
-   toast("Server recovery restored");
+   markDirty();toast("Server recovery restored");
  }catch(e){
    alert("Mercury could not restore that server snapshot.\n\n"+e.message);
  }
@@ -1181,6 +1343,8 @@ function renderProject(){
  <div class="field"><label>Words per page</label><input id="pWpp" type="number" min="180" max="500" step="10" value="${project.wordsPerPage||300}"><div class="save-note">Controls Mercury’s 6×9 visual page density. Default: 300.</div></div></div>
  </div>
  <div class="card"><h3>Mercury Library</h3><div class="save-note" id="mercuryLibraryInfo">Loading library…</div><div id="mercuryLibraryGrid" style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(250px,.8fr);gap:18px;margin-top:8px"><div id="mercuryLibraryList"></div><div id="mercuryLibraryDetail" class="save-note" style="border-left:1px solid var(--line);padding-left:16px;min-height:120px">Select a project for details.</div></div><div class="save-note" id="mercuryDocumentsZone" style="margin-top:8px"></div><div style="margin-top:10px"><button class="btn" id="mercuryTrashBtn">Recently Deleted</button> <span class="save-note" id="mercuryTrashInfo"></span></div><div id="mercuryTrashList" style="display:none;margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div></div>
+
+ <div class="card"><h3>Fabric copies</h3><div class="save-note">Keep this library on paired Mercury nodes for offline writing. Revision ancestry controls updates; divergent drafts are preserved for review. Deleting a local project does not delete another node’s copy. Reset disables sync until you enable it again.</div><label><input type="checkbox" id="fabricSyncEnabled"> Sync this library with paired Mercury nodes</label><div id="fabricSyncStatus" class="save-note">Checking…</div><button class="btn" id="copyProjectLink">Copy project link for LOOK Notes</button></div>
  <div class="card"><h3>Saving &amp; Recovery</h3><div class="save-note">Mercury keeps a browser crash buffer while you type, commits settled edits to the live Mercury project, and keeps changed recovery snapshots about every five minutes. Always Local projects also keep an offline Documents replica.</div><div class="save-note" id="serverHistoryInfo" style="margin-top:6px"></div></div>
  <div class="card"><h3>Recovery</h3>
  <div class="save-note" id="previousProjectInfo"></div>
@@ -1199,6 +1363,20 @@ function renderProject(){
  });
 
  const prev=previousProjectRecord();
+ fetch("/api/sync/status").then(r=>r.json()).then(state=>{
+   if(!$("#fabricSyncEnabled"))return;
+   $("#fabricSyncEnabled").checked=state.enabled;
+   $("#fabricSyncStatus").textContent=`${state.offline.filter(item=>item.ready).length}/${state.offline.length} projects ready offline · `+(state.enabled?"Enabled · paired nodes synchronize while both Mercury servers and Fabric are running":"Off · enable on each writing computer")+` · ${state.conflicts.length} draft conflict(s)`;
+ }).catch(()=>{$("#fabricSyncStatus").textContent="Mercury server unavailable"});
+ $("#fabricSyncEnabled").onchange=async event=>{
+   try{const r=await fetch("/api/sync/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:event.target.checked})});if(!r.ok)throw new Error("Could not save sync setting");renderProject()}
+   catch(error){event.target.checked=!event.target.checked;toast(error.message)}
+ };
+ $("#copyProjectLink").onclick=async()=>{
+   await commitCanonical();if(!project.project_id){toast("Save the project to Mercury first");return}
+   const link=`[${(project.title||"Manuscript").replace(/[\[\]\\]/g," ")}](mercury:${project.project_id})`;
+   try{await navigator.clipboard.writeText(link);toast("Project link copied")}catch{prompt("Copy this link for LOOK Notes",link)}
+ };
  refreshMercuryLibrary();
   $("#previousProjectInfo").textContent=prev?.project
    ? `Previous project: “${prev.project.title||"Untitled"}”${prev.savedAt?" — "+new Date(prev.savedAt).toLocaleString():""}`
@@ -1542,11 +1720,12 @@ function openFile(file){
     }catch(_){}
   }
 
-  project=incoming;
+  const sameProject=project.project_id&&project.project_id===incoming.project_id;
+  project=incoming;canonicalRevision=sameProject?canonicalRevision:null;
   activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;
   localStorage.setItem(STORAGE,JSON.stringify(project));
   refreshAll();
-  toast(`Opened ${file.name}`);
+  markDirty();toast(`Opened ${file.name}`);
  };
  r.readAsText(file);
 }
@@ -1570,12 +1749,13 @@ function restorePreviousProject(){
  if(!ok)return;
  try{if($("#editor")&&active())syncFromEditor()}catch(e){console.warn("Editor sync before restore skipped:",e)}
  const current=clone(project);
- project=rec.project;
+ const sameProject=project.project_id&&project.project_id===rec.project.project_id;
+ project=rec.project;canonicalRevision=sameProject?canonicalRevision:null;
  localStorage.setItem(PREVIOUS_STORAGE,JSON.stringify({savedAt:new Date().toISOString(),project:current}));
  activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;
  localStorage.setItem(STORAGE,JSON.stringify(project));
  refreshAll();setView("editor");$("#editor").focus();
- toast("Previous project restored");
+ markDirty();toast("Previous project restored");
 }
 
 function newProject(){
@@ -1586,12 +1766,13 @@ function newProject(){
  );
  if(!ok)return;
  try{snapshotCurrentProject()}catch(e){console.warn("Previous-project snapshot failed:",e)}
- project={version:1,title:"Untitled Novel",author:"",targetWords:90000,wordsPerPage:300,
+ canonicalRevision=null;
+ project={project_id:newProjectId(),version:1,title:"Untitled Novel",author:"",targetWords:90000,wordsPerPage:300,
   created:new Date().toISOString(),modified:new Date().toISOString(),chapters:[{id:uid(),title:"Chapter 1",notes:"",scenes:[{id:uid(),title:"Scene 1",target:1500,notes:"",text:""}]}]};
  activeId=project.chapters[0].scenes[0].id;
  localStorage.setItem(STORAGE,JSON.stringify(project));
  refreshAll();setView("editor");$("#editor").focus();
- toast("New manuscript created — previous project recoverable");
+ markDirty();toast("New manuscript created — previous project recoverable");
 }
 
 function pageDensity(){
@@ -1844,6 +2025,7 @@ function refreshZoomLabels(){
  if(book)book.textContent=`${Math.round(bookZoom*100)}%`;
 }
 function setView(v){
+ if(v==="pages"&&splitOpen)toggleSplit(false);
  currentView=v;
  const isPages=v==="pages";
  $("#editor").classList.toggle("hidden",isPages);$("#bookStage").classList.toggle("hidden",!isPages);
@@ -1852,6 +2034,7 @@ function setView(v){
  refreshZoomLabels();
 }
 function toggleFocus(force){
+ if(splitOpen&&(force===true||!focusMode))toggleSplit(false);
  focusMode=typeof force==="boolean"?force:!focusMode;
  $(".sidebar").classList.toggle("hidden",focusMode);$(".inspector").classList.toggle("hidden",focusMode);$(".dochead").classList.toggle("hidden",focusMode);
  $(".workspace").style.gridTemplateColumns=focusMode?"1fr":"";
@@ -2055,6 +2238,7 @@ function mobileCommand(cmd){
  else if(cmd==="undo"){document.execCommand("undo");syncFromEditor()}
  else if(cmd==="redo"){document.execCommand("redo");syncFromEditor()}
  else if(cmd==="find"){$("#findbar").classList.remove("hidden");$("#findInput").focus()}
+ else if(cmd==="split")toggleSplit();
  else if(cmd==="editor")setView("editor");
  else if(cmd==="pages")setView("pages");
  else if(cmd==="focus")toggleFocus();
