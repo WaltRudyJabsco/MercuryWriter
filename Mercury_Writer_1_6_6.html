@@ -579,9 +579,10 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
  <section class="modal library-modal" role="dialog" aria-modal="true" aria-labelledby="clipboardHeading">
   <div class="modal-head" style="display:flex;align-items:center;gap:12px"><span id="clipboardHeading">LOOK Clipboard</span><span class="spacer"></span><button class="btn" id="closeClipboard" aria-label="Close clipboard">×</button></div>
   <div class="modal-body">
-   <p style="margin-top:0;color:var(--muted)">Saved text clips on this computer, shared with Mini and lk clip.</p>
+   <p style="margin-top:0;color:var(--muted)">LOOK clips stay on the computer where they were captured. Mini and web share a shelf when they use that same computer.</p>
    <div class="field"><label for="clipboardSearch">Find a clip</label><input id="clipboardSearch" type="search" placeholder="Search saved clips…" autocomplete="off"></div>
    <div id="clipboardStatus" class="save-note" role="status">Loading clips…</div>
+   <p><a id="localClipboardLink" class="hidden" href="http://127.0.0.1:8765/" target="_blank" rel="noopener">Open Mercury on this computer to use its local clips</a></p>
    <div id="clipboardList" class="library-picker-list"></div>
    <pre id="clipboardPreview" style="white-space:pre-wrap;overflow:auto;max-height:180px;font:inherit;border-top:1px solid var(--line);padding-top:12px"></pre>
   </div>
@@ -2468,7 +2469,7 @@ $("#libraryDialog").addEventListener("keydown",event=>{
  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
 });
 
-let clipboardClips=[],clipboardChoice=null,clipboardTarget=null,lastWritingEditor=null;
+let clipboardClips=[],clipboardChoice=null,clipboardTarget=null,lastWritingEditor=null,clipboardReady=false;
 document.addEventListener("focusin",event=>{if(["editor","splitEditor"].includes(event.target.id))lastWritingEditor=event.target});
 function drawClipboard(){
  const query=$("#clipboardSearch").value.toLocaleLowerCase(),list=$("#clipboardList");list.replaceChildren();
@@ -2479,20 +2480,21 @@ function drawClipboard(){
    button.setAttribute("aria-pressed",clipboardChoice?.id===clip.id);
    button.onclick=()=>{clipboardChoice=clip;drawClipboard()};list.appendChild(button);
  }
- if(!list.children.length){const empty=document.createElement("p");empty.className="save-note";empty.textContent=query?"No clips match your search.":"No saved clips yet. Copy text in Mini or use lk clip add.";list.appendChild(empty)}
+ if(!list.children.length&&clipboardReady){const empty=document.createElement("p");empty.className="save-note";empty.textContent=query?"No clips match your search.":"No saved clips on this computer. Mini copies/cuts add clips; lk clip status shows automatic capture.";list.appendChild(empty)}
  $("#clipboardPreview").textContent=clipboardChoice?.text||"Select a clip to preview it.";
  $("#insertClipboard").disabled=!clipboardChoice;
 }
 async function refreshClipboard(){
- $("#clipboardStatus").textContent="Loading clips…";clipboardChoice=null;clipboardClips=[];drawClipboard();
+ $("#clipboardStatus").textContent="Loading clips…";clipboardChoice=null;clipboardClips=[];clipboardReady=false;drawClipboard();
  try{
    const response=await fetch("/api/clipboard",{cache:"no-store",headers:{"X-Mercury-Clipboard":"1"}}),data=await response.json();
    if(!response.ok)throw new Error(data.error||"Clipboard unavailable");
-   clipboardClips=data.clips||[];$("#clipboardStatus").textContent=data.message||`${clipboardClips.length} saved clips · local to this computer`;
+   clipboardReady=!!data.available;clipboardClips=data.clips||[];$("#clipboardStatus").textContent=data.message||`${clipboardClips.length} saved clips · local to this computer`;
    drawClipboard();
  }catch(error){$("#clipboardStatus").textContent=error.message;drawClipboard()}
 }
 function openClipboard(){
+ $("#localClipboardLink").classList.toggle("hidden",["127.0.0.1","localhost","[::1]"].includes(location.hostname));
  const editor=lastWritingEditor?.id==="splitEditor"&&splitOpen?$("#splitEditor"):$("#editor");
  clipboardTarget={editor,projectId:project.project_id,sceneId:editor.id==="splitEditor"?splitSceneId:activeId,start:editor.selectionStart,end:editor.selectionEnd,value:editor.value};
  $("#clipboardDialog").classList.remove("hidden");$("#clipboardSearch").value="";$("#clipboardSearch").focus();refreshClipboard();

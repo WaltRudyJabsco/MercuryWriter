@@ -24,7 +24,7 @@ from datetime import datetime
 import mercury_sync
 import mercury_fabric
 
-VERSION="1.6.5"
+VERSION="1.6.6"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")

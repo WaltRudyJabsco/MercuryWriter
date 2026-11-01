@@ -3,6 +3,7 @@ import curses,json,os,re,shutil,subprocess,sys,urllib.request,urllib.error,urlli
 from pathlib import Path
 import argparse,time,shlex
 from mercury_session import Session
+from mercury_terminal import binding_rows,hint_styles,paint_bindings
 LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json"
 
 def req(b,p,x=None,timeout=5):
@@ -128,17 +129,23 @@ def confirm(stdscr,msg,word="y"):
 
 
 def trash_ui(stdscr,b):
- idx=0;message=""
+ idx=0;message="";styles=hint_styles()
  while True:
   code,data=req(b,"/api/library/trash",timeout=2);items=data.get("trash",[]) if code==200 else []
   idx=max(0,min(idx,max(0,len(items)-1)));h,w=stdscr.getmaxyx();stdscr.erase()
+  if h<10 or w<40:
+   stdscr.addnstr(0,0,'Mercury Trash needs 40 columns × 10 rows; q returns',max(0,w-1));stdscr.refresh()
+   if stdscr.getch() in (ord('q'),27):return
+   continue
   stdscr.addnstr(0,0,f"MERCURY {data.get('version','')} · TRASH · {len(items)} deleted project(s)",w-1,curses.A_BOLD)
-  for row,x in enumerate(items[max(0,idx-(h-6)):max(0,idx-(h-6))+max(1,h-5)],2):
-   actual=max(0,idx-(h-6))+row-2;attr=curses.A_REVERSE if actual==idx else curses.A_NORMAL
+  footer=binding_rows([('↑↓','select'),('r','restore'),('d','delete permanently'),('←/q','back')],w-1)
+  footer_top=h-len(footer);visible_rows=max(0,footer_top-3);top=max(0,idx-visible_rows+1)
+  for row,x in enumerate(items[top:top+visible_rows],2):
+   actual=top+row-2;attr=curses.A_REVERSE if actual==idx else curses.A_NORMAL
    st=x.get("stats",{});line=f"  {x.get('title','Untitled'):<30} {st.get('words',0):>8,} words  {str(x.get('deleted_at',''))[:19]}"
    stdscr.addnstr(row,0,line,w-1,attr)
-  if message:stdscr.addnstr(h-2,0,message,w-1);message=""
-  stdscr.addnstr(h-1,0,"↑↓ select  r restore  d delete permanently  ←/q back",w-1,curses.A_DIM);stdscr.refresh();key=stdscr.getch()
+  if message:stdscr.addnstr(footer_top-1,0,message,w-1);message=""
+  paint_bindings(stdscr,footer_top,footer,styles);stdscr.refresh();key=stdscr.getch()
   if key in (ord("q"),27,curses.KEY_LEFT,curses.KEY_BACKSPACE,127,8):return
   if key in (curses.KEY_UP,ord("k")):idx=max(0,idx-1)
   elif key in (curses.KEY_DOWN,ord("j")):idx=min(max(0,len(items)-1),idx+1)
@@ -154,7 +161,7 @@ def trash_ui(stdscr,b):
     except Exception as e:message=str(e)
 
 def library_ui(stdscr,editor=None,split_view=False):
- curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message=""
+ curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message="";styles=hint_styles()
  b,lib=discover()
  def refresh():
   nonlocal lib
@@ -170,6 +177,12 @@ def library_ui(stdscr,editor=None,split_view=False):
   items=[("dir",x) for x in sorted(dirs,key=lambda x:x["name"].casefold())]+[("project",x) for x in sorted(projs,key=lambda x:x["title"].casefold())]
   idx=max(0,min(idx,max(0,len(items)-1)))
   h,w=stdscr.getmaxyx();stdscr.erase()
+  if h<10 or w<40:
+   stdscr.addnstr(0,0,'Mercury Library needs 40 columns × 10 rows; q quits',max(0,w-1));stdscr.refresh()
+   if stdscr.getch() in (ord('q'),27):return
+   continue
+  footer=binding_rows([('↑↓','select'),('Enter','edit'),('←','up'),('n','new project'),('N','new folder'),('r','rename'),('m','move'),('l','keep offline'),('x','remove local copy'),('d','delete'),('T','trash'),('/','filter'),('c','clear filter'),('o','browser'),('q','quit')],w-1)
+  footer_top=h-len(footer);visible_rows=max(0,footer_top-4)
   path=[];f=folder
   while f and f in fmap:path.append(fmap[f]["name"]);f=fmap[f].get("parent_id")
   where=" / ".join(reversed(path)) or "Library"
@@ -177,7 +190,7 @@ def library_ui(stdscr,editor=None,split_view=False):
   stdscr.addnstr(1,0,f"Shared writing library · editor: {editor or os.environ.get('MERCURY_EDITOR') or 'mini'} · filter: {query or '—'}",w-1)
   pane=(w>=96);split=max(48,min(66,w//2)) if pane else w
   listw=split-2 if pane else w-1
-  top=max(0,idx-(h-7));visible=items[top:top+max(1,h-7)]
+  top=max(0,idx-visible_rows+1);visible=items[top:top+visible_rows]
   for row,(kind,x) in enumerate(visible,3):
    selected=(top+row-3)==idx;attr=curses.A_REVERSE if selected else curses.A_NORMAL
    if kind=="dir":line=f"  {x['name']}/"
@@ -194,16 +207,15 @@ def library_ui(stdscr,editor=None,split_view=False):
     detail += ["AVAILABILITY","Available offline" if x.get("local") else "Available on this computer","Edits sync when connected","",f"Updated  {x.get('modified') or x.get('updated_at') or '—'}"]
    else:
     childp=[p for p in projects if p.get("folder_id")==x.get("folder_id")];detail=[x.get("name","")+"/","",f"{len(childp)} projects",f"{sum((p.get('stats') or {}).get('words',0) for p in childp):,} words",f"{sum(1 for p in childp if p.get('local'))} local replicas"]
-   for n,line in enumerate(detail[:max(0,h-5)],3):stdscr.addnstr(n,col,str(line),max(1,w-col-1),curses.A_BOLD if n==3 else curses.A_NORMAL)
-  footer="↑↓ select  Enter edit  ← up  n project  N dir  r rename  m move  l local  x remove-local  d delete  T trash  / filter  o browser  q quit"
-  stdscr.addnstr(h-1,0,footer,w-1,curses.A_DIM)
-  if message:stdscr.addnstr(h-2,0,message,w-1);message=""
+   for n,line in enumerate(detail[:visible_rows],3):stdscr.addnstr(n,col,str(line),max(1,w-col-1),curses.A_BOLD if n==3 else curses.A_NORMAL)
+  paint_bindings(stdscr,footer_top,footer,styles)
+  if message:stdscr.addnstr(footer_top-1,0,message,w-1);message=""
   stdscr.refresh();key=stdscr.getch()
   if key in (ord("q"),27):return
   if key in (curses.KEY_UP,ord("k")):idx=max(0,idx-1)
   elif key in (curses.KEY_DOWN,ord("j")):idx=min(max(0,len(items)-1),idx+1)
-  elif key==curses.KEY_PPAGE:idx=max(0,idx-max(1,h-7))
-  elif key==curses.KEY_NPAGE:idx=min(max(0,len(items)-1),idx+max(1,h-7))
+  elif key==curses.KEY_PPAGE:idx=max(0,idx-max(1,visible_rows))
+  elif key==curses.KEY_NPAGE:idx=min(max(0,len(items)-1),idx+max(1,visible_rows))
   elif key in (curses.KEY_HOME,):idx=0
   elif key in (curses.KEY_END,):idx=max(0,len(items)-1)
   elif key in (curses.KEY_LEFT,curses.KEY_BACKSPACE,127,8):

@@ -8,7 +8,9 @@ import sqlite3
 import subprocess
 import sys
 import time
+import textwrap
 import unicodedata
+from mercury_terminal import binding_rows,hint_styles,paint_bindings,mini_bindings,mini_help
 
 UNDO_LIMIT = 100
 CHECKPOINT_SECONDS = 2
@@ -207,7 +209,7 @@ def run(scenes, checkpoint, save, split=False,initial=0):
         raise ValueError('This manuscript has no scenes')
     panes = [dict(scene=initial, cursor=0, scroll=0, nav=initial,column=None), dict(scene=initial, cursor=0, scroll=0, nav=initial,column=None)]
     state = dict(pane=0, split=split, mode='NORMAL', tree=False, anchor=0,
-                 shift_selection=False,return_mode='NORMAL',register='', message='', command='', dirty=False, checkpoint=0)
+                 shift_selection=False,return_mode='NORMAL',register='', message='', command='', dirty=False, checkpoint=0,help=False,help_scroll=0)
 
     def values():
         return [dict(scene, text=buffer.text) for scene, buffer in zip(scenes, buffers)]
@@ -222,6 +224,7 @@ def run(scenes, checkpoint, save, split=False,initial=0):
 
     def interface(window):
         curses.raw(); window.keypad(True); window.timeout(INPUT_TIMEOUT_MS)
+        styles=hint_styles()
         while True:
             height, width = window.getmaxyx(); window.erase()
             if height < 10 or width < 48:
@@ -230,8 +233,43 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 key = read_key(window)
                 if key in ('q', '\x11'): persist(); return
                 continue
+            if state['help']:
+                lines=[]
+                for title,bindings in mini_help():
+                    lines.extend([[(line,True)] for line in textwrap.wrap(title,width-1)])
+                    lines.extend(binding_rows(bindings,width-3) if bindings else [])
+                    lines.append([])
+                help_footer=binding_rows([('F1/Esc','back'),('↑↓','scroll'),('PgUp/PgDn','page')],width-1)
+                page=height-len(help_footer)-2;state['help_scroll']=max(0,min(state['help_scroll'],max(0,len(lines)-page)))
+                paint(window,0,0,'MINI HELP · '+state['mode']+' · Ctrl means Control, not Command',width-1,curses.A_REVERSE)
+                paint_bindings(window,1,lines[state['help_scroll']:state['help_scroll']+page],styles)
+                paint_bindings(window,height-len(help_footer),help_footer,styles)
+                window.refresh()
+                try:key=read_key(window)
+                except curses.error:continue
+                if key in ('\x1b','q',curses.KEY_F1):state['help']=False
+                elif key=='\x11':persist();return
+                elif key=='\x13':
+                    persist()
+                    try:state['message']=save();state['dirty']=False
+                    except Exception as error:state['message']=str(error)
+                elif key in (curses.KEY_DOWN,'j'):state['help_scroll']+=1
+                elif key in (curses.KEY_UP,'k'):state['help_scroll']-=1
+                elif key==curses.KEY_NPAGE:state['help_scroll']+=page
+                elif key==curses.KEY_PPAGE:state['help_scroll']-=page
+                continue
+            footer=binding_rows(mini_bindings(state),width-1)
+            footer_top=height-len(footer)-2
             count = 2 if state['split'] else 1
-            pane_height = (height-3)//count
+            pane_height = footer_top//count
+            if pane_height<3:
+                paint(window,0,0,'Increase terminal height for two writing panes; Ctrl-W closes split',width-1)
+                window.refresh()
+                try:key=read_key(window)
+                except curses.error:continue
+                if key=='\x17':state['split']=False;state['pane']=0
+                elif key=='\x11':persist();return
+                continue
             nav_width = min(NAV_WIDTH, width//3)
             edit_width = width-nav_width-3
             active = panes[state['pane']]; buffer = buffers[active['scene']]
@@ -269,7 +307,7 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                     start = rows[cursor_row][0]
                     offset = cell_width(text[start:pane['cursor']])
                     cursor = (top+1+cursor_row-pane['scroll'], min(width-2, nav_width+1+offset))
-            paint(window,height-3,0,'Ctrl-S save · Ctrl-Q quit · Ctrl-W split · Tab tree · Ctrl-J pane · ? help',width-1,curses.A_DIM)
+            paint_bindings(window,footer_top,footer,styles)
             paint(window,height-2,0,f"{state['mode']} · {'Manuscript' if state['tree'] else 'Writing'} · {len(buffer.text.split())} words · {state['message']}",width-1,curses.A_REVERSE)
             paint(window,height-1,0,(':'+state['command']) if state['mode']=='COMMAND' else '',width-1)
             try:
@@ -281,6 +319,8 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 persist()
             try: key = read_key(window)
             except curses.error: continue
+            if key==curses.KEY_F1 or key=='?' and state['mode']=='NORMAL':
+                persist();state['help']=True;state['help_scroll']=0;continue
             if key == '\x13':
                 persist()
                 try: state['message']=save(); state['dirty']=False
@@ -293,6 +333,8 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 state['pane']=1-state['pane'] if state['split'] else 0;state['mode']='NORMAL';continue
             if key == '\t': state['tree']=not state['tree']; state['mode']='NORMAL'; continue
             if key == '\x1b': state['mode']='NORMAL'; state['command']=''; continue
+            if key=='\x02' and (state['tree'] or state['mode']=='COMMAND'):
+                state['tree']=False;state['mode']='NORMAL';state['command']=''
             if state['tree']:
                 if key in ('j',curses.KEY_DOWN): active['nav']=min(len(scenes)-1,active['nav']+1)
                 elif key in ('k',curses.KEY_UP): active['nav']=max(0,active['nav']-1)
@@ -407,7 +449,6 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 end=buffer.text.find('\n',pos);active['cursor']=len(buffer.text) if end<0 else end
             elif key=='G':active['cursor']=len(buffer.text)
             elif key==':':state['mode']='COMMAND';state['command']=''
-            elif key=='?':state['message']='i insert · Esc normal · v visual · Shift+arrows select · PgUp/Dn · Ctrl-Home/End · Ctrl-A all · Ctrl-C/X/V clipboard · Ctrl-B LOOK clips'
             if before!=buffer.text:state['dirty']=True;active['column']=None
             elif not motion:active['column']=None
     try: curses.wrapper(interface)

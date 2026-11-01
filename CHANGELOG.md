@@ -1,3 +1,12 @@
+# 1.6.6 — Clear Terminal Commands
+
+- Wrap Library, Trash and Mini command bars and contrast shortcut keys with descriptions.
+- Reserve footer space so long command lists do not overlap projects or writing.
+- Include Ctrl-B and show Mini hints for the current editing/navigation mode.
+- F1 opens full scrollable help in any mode; normal-mode ? opens help while insert-mode ? stays text.
+- Keep editing mode and selection intact through help; Ctrl-B also works from tree and command entry.
+- Explain local clipboard scope in the web shelf; remote-access errors no longer look like an empty history and link to local Mercury.
+
 # 1.6.5 — Clipboard in Both Views
 
 - The browser Clipboard button opens searchable LOOK clips with previews and explicit insertion.
