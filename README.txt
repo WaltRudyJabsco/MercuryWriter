@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.3 — Mini by Default
+# Mercury Writer 1.6.4 — Writing Keys and LOOK Clips
 
 A local-first novel writing studio. The browser, your usual Neovim and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -90,13 +90,35 @@ Editor names are case-insensitive, so `--editor Mini` works too. Use the single
 hyphenated name `nvim-desk`. Explicit editor options override `MERCURY_EDITOR`;
 without either, Mercury uses Mini even when Neovim is installed.
 
-**Mini** offers Ctrl-W split, Ctrl-J other pane, Tab manuscript navigator,
-Enter select, Ctrl-S save and Ctrl-Q exit/commit. Each split has its own
-navigator. `i`, `a`, `o` enter insert; Esc returns to normal. `hjkl`/arrows move,
-`v` selects, `y`/`d` copies/deletes a selection, `x` deletes, `p` pastes,
-`u`/Ctrl-R undo/redo, and `0`, `$`, `G` navigate. Commands: `:w`, `:q`, `:wq`,
-`:split`, `:only`. `?` shows help. Mini intentionally supports a bounded set of
-Vim commands; Neovim is available for its full editing behavior.
+**Mini** offers Ctrl-W split, Ctrl-J other pane (in normal mode), Tab manuscript
+navigator, Enter select, Ctrl-S save and Ctrl-Q exit/commit. Each split has its
+own navigator. `i`, `a`, `o` enter insert; Esc returns to normal. Arrows work in
+all writing modes; `hjkl` also moves in normal and Vim visual mode.
+
+- Page Up/Down moves by the visible writing pane height, keeping the cursor’s
+  screen row and preferred display column wherever document bounds allow.
+- Home/End goes to the current line’s start/end; Ctrl-Home/End goes to the
+  scene’s start/end. On Mac keyboards, Fn-Up/Down generally supplies Page Up/Down;
+  terminal-specific modified key mappings may need configuring.
+- Shift+arrows extends a standard selection. Shift+Page Up/Down, Shift+Home/End
+  and Ctrl+Shift+Home/End also select. Typing replaces a Shift selection;
+  Backspace/Delete removes it. Ctrl-A selects the entire scene.
+- `v` enters Vim-style visual mode; `y` copies and `d` cuts its selection.
+  Ctrl-C copies, Ctrl-X cuts, and Ctrl-V pastes the system clipboard in any
+  writing mode. `p` pastes Mini’s internal register in normal/visual mode.
+- Ctrl-B opens the installed **LOOK clipboard shelf** (`lk clip`) and inserts
+  the numbered clip you choose. `P` in normal mode does the same.
+
+Explicit copies/cuts also add text to LOOK’s local ten-slot shelf, including
+when automatic capture is off. This does not enable background capture or sync
+clipboard history. Mini uses LOOK’s installed clipboard backend when available;
+standalone installs use macOS/Wayland/X11 clipboard tools. On headless machines
+without a system clipboard, Mini retains its internal register and reports the
+limitation. A saved LOOK clip can still be inserted with Ctrl-B.
+
+`x` deletes, `u`/Ctrl-R undo/redo, and `0`, `$`, `G` navigate. Commands: `:w`,
+`:q`, `:wq`, `:split`, `:only`. `?` shows help. Mini intentionally supports a
+bounded set of Vim commands; Neovim is available for its full editing behavior.
 
 The optional **Neovim interface** (`--editor nvim`) loads your personal
 configuration and opens the manuscript directory, with named chapter folders

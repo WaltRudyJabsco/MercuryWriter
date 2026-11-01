@@ -1,11 +1,21 @@
 """Small, dependency-free terminal writing desk with a deliberately bounded modal set."""
 import curses
+import importlib
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import subprocess
+import sys
 import time
 import unicodedata
 
 UNDO_LIMIT = 100
 CHECKPOINT_SECONDS = 2
 NAV_WIDTH = 24
+INPUT_TIMEOUT_MS = 500
+ESCAPE_TIMEOUT_MS = 25
+CLIPBOARD_TIMEOUT_SECONDS = 2
 
 
 class Buffer:
@@ -45,11 +55,149 @@ def wrapped(text, width):
     return rows
 
 
-def move_vertical(text, position, direction, width):
+def cell_width(text):
+    return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text)
+
+
+def row_at(rows, position):
+    # At a soft wrap, the offset belongs to the following display row.
+    return next((i for i in range(len(rows)-1,-1,-1) if rows[i][0] <= position),0)
+
+
+def at_column(text, row, column):
+    start,end=row;cells=0;position=start
+    for char in text[start:end]:
+        size=cell_width(char)
+        if cells+size>column:break
+        cells+=size;position+=1
+    return position
+
+
+def move_vertical(text, position, direction, width, column=None):
     rows = wrapped(text, width)
-    row = next((index for index, (start, end) in enumerate(rows) if start <= position <= end), len(rows)-1)
+    row = row_at(rows,position)
     target = max(0, min(len(rows)-1, row + direction))
-    return min(rows[target][1], rows[target][0] + position - rows[row][0])
+    if column is None:column=cell_width(text[rows[row][0]:position])
+    return at_column(text,rows[target],column)
+
+
+def move_page(text,position,scroll,direction,width,height,column=None):
+    rows=wrapped(text,width)
+    cursor=move_vertical(text,position,direction*height,width,column)
+    scroll=max(0,min(max(0,len(rows)-height),scroll+direction*height))
+    return cursor,scroll
+
+
+def clipboard_command(copy):
+    if sys.platform=='darwin':candidates=[['pbcopy'] if copy else ['pbpaste']]
+    elif os.environ.get('WAYLAND_DISPLAY'):candidates=[['wl-copy'] if copy else ['wl-paste','--no-newline']]
+    elif os.environ.get('DISPLAY'):
+        candidates=[['xclip','-selection','clipboard']+([] if copy else ['-o']),['xsel','--clipboard','--input' if copy else '--output']]
+    else:candidates=[]
+    return next((command for command in candidates if shutil.which(command[0])),None)
+
+
+def look_clipboard():
+    look=Path.home()/'.local/share/look'
+    if not (look/'clipboard_shelf.py').is_file():return None
+    if str(look) not in sys.path:sys.path.append(str(look))
+    try:return importlib.import_module('clipboard_shelf')
+    except ImportError:return None
+
+
+def clipboard_copy(text):
+    look=look_clipboard();recorded=False;copied=False
+    if look:
+        try:
+            copied=look.copy_clipboard(text)
+            shelf=look.Shelf()
+            try:recorded=shelf.observe(text) or any(row[1]==text for row in shelf.rows())
+            finally:shelf.close()
+        except (OSError,ValueError,sqlite3.Error):pass
+        return copied,recorded
+    command=clipboard_command(True)
+    if command:
+        try:return subprocess.run(command,input=text,text=True,capture_output=True,timeout=CLIPBOARD_TIMEOUT_SECONDS).returncode==0,False
+        except (OSError,subprocess.SubprocessError,UnicodeError):pass
+    return False,False
+
+
+def clipboard_paste():
+    look=look_clipboard()
+    if look:return look.read_clipboard()
+    command=clipboard_command(False)
+    if command:
+        try:
+            result=subprocess.run(command,text=True,capture_output=True,timeout=CLIPBOARD_TIMEOUT_SECONDS)
+            if result.returncode==0:return result.stdout
+        except (OSError,subprocess.SubprocessError,UnicodeError):pass
+    return None
+
+
+def clipboard_history(window):
+    look=look_clipboard()
+    if not look:return None
+    curses.def_prog_mode();curses.endwin()
+    try:return look.show(insert=True)
+    finally:
+        curses.reset_prog_mode();curses.raw();window.keypad(True);window.timeout(INPUT_TIMEOUT_MS)
+
+
+def selection_bounds(state,cursor,length):
+    if state['mode']!='VISUAL':return None
+    lo,hi=sorted((state['anchor'],cursor))
+    if not state.get('shift_selection'):hi+=1
+    hi=min(length,hi)
+    return (lo,hi) if lo<hi else None
+
+
+def read_key(window):
+    key=window.get_wch()
+    if key!='\x1b':return key
+    # Terminfo handles most modified keys. Decode xterm CSI variants when it does not.
+    sequence=key;window.timeout(ESCAPE_TIMEOUT_MS)
+    try:
+        following=window.get_wch()
+        if following not in ('[','O'):
+            if isinstance(following,int):curses.ungetch(following)
+            else:curses.unget_wch(following)
+            return key
+        sequence+=following
+        for _ in range(24):
+            char=window.get_wch()
+            if not isinstance(char,str):curses.ungetch(char);break
+            sequence+=char
+            if char.isalpha() or char=='~':break
+    except curses.error:pass
+    finally:window.timeout(INPUT_TIMEOUT_MS)
+    return sequence
+
+
+def navigation_key(key):
+    names={'LEFT':'left','RIGHT':'right','UP':'up','DOWN':'down','HOME':'home','END':'end',
+           'PPAGE':'pageup','NPAGE':'pagedown','SLEFT':'shift-left','SRIGHT':'shift-right',
+           'SR':'shift-up','SF':'shift-down','SHOME':'shift-home','SEND':'shift-end',
+           'SPREVIOUS':'shift-pageup','SNEXT':'shift-pagedown'}
+    if isinstance(key,int):
+        for suffix,name in names.items():
+            if key==getattr(curses,'KEY_'+suffix,None):return name
+        try:name=curses.keyname(key).decode()
+        except (curses.error,UnicodeError):return None
+        for prefix,name_base in [('kUP','up'),('kDN','down'),('kLFT','left'),('kRIT','right'),('kHOM','home'),('kEND','end'),('kPRV','pageup'),('kNXT','pagedown')]:
+            if name==prefix:return 'shift-'+name_base
+            if name==prefix+'5':return 'ctrl-'+name_base
+            if name==prefix+'6':return 'ctrl-shift-'+name_base
+        return None
+    codes={'A':'up','B':'down','C':'right','D':'left','H':'home','F':'end',
+           '1~':'home','4~':'end','7~':'home','8~':'end','5~':'pageup','6~':'pagedown'}
+    if key.startswith(('\x1b[','\x1bO')):
+        suffix=key[2:]
+        if suffix in codes:return codes[suffix]
+        for modifier,prefix in [('2','shift-'),('5','ctrl-'),('6','ctrl-shift-')]:
+            for code,name in codes.items():
+                expected=(code[:-1]+';'+modifier+'~') if code.endswith('~') else '1;'+modifier+code
+                if suffix==expected:return prefix+name
+    return None
 
 
 def run(scenes, checkpoint, save, split=False,initial=0):
@@ -57,9 +205,9 @@ def run(scenes, checkpoint, save, split=False,initial=0):
     buffers = [Buffer(scene['text']) for scene in scenes]
     if not buffers:
         raise ValueError('This manuscript has no scenes')
-    panes = [dict(scene=initial, cursor=0, scroll=0, nav=initial), dict(scene=initial, cursor=0, scroll=0, nav=initial)]
+    panes = [dict(scene=initial, cursor=0, scroll=0, nav=initial,column=None), dict(scene=initial, cursor=0, scroll=0, nav=initial,column=None)]
     state = dict(pane=0, split=split, mode='NORMAL', tree=False, anchor=0,
-                 register='', message='', command='', dirty=False, checkpoint=0)
+                 shift_selection=False,return_mode='NORMAL',register='', message='', command='', dirty=False, checkpoint=0)
 
     def values():
         return [dict(scene, text=buffer.text) for scene, buffer in zip(scenes, buffers)]
@@ -73,13 +221,13 @@ def run(scenes, checkpoint, save, split=False,initial=0):
         except curses.error: pass
 
     def interface(window):
-        curses.raw(); window.keypad(True); window.timeout(500)
+        curses.raw(); window.keypad(True); window.timeout(INPUT_TIMEOUT_MS)
         while True:
             height, width = window.getmaxyx(); window.erase()
             if height < 10 or width < 48:
                 paint(window, 0, 0, 'Mercury needs at least 48 columns × 10 rows', width-1)
                 window.refresh()
-                key = window.get_wch()
+                key = read_key(window)
                 if key in ('q', '\x11'): persist(); return
                 continue
             count = 2 if state['split'] else 1
@@ -101,7 +249,8 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                     paint(window, top+1+row, 0, label, nav_width-1,
                           curses.A_REVERSE if index == pane['nav'] and number == state['pane'] and state['tree'] else curses.A_BOLD if index == pane['scene'] else 0)
                 rows = wrapped(text, edit_width)
-                cursor_row = next((i for i, (a,b) in enumerate(rows) if a <= pane['cursor'] <= b), len(rows)-1)
+                pane['cursor']=min(pane['cursor'],len(text))
+                cursor_row = row_at(rows,pane['cursor'])
                 if cursor_row < pane['scroll']: pane['scroll'] = cursor_row
                 if cursor_row >= pane['scroll']+body_height: pane['scroll'] = cursor_row-body_height+1
                 for line in range(body_height):
@@ -110,16 +259,17 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                     start, end = rows[index]
                     paint(window, top+1+line, nav_width+1, text[start:end], edit_width)
                     if number == state['pane'] and state['mode'] == 'VISUAL':
-                        lo, hi = sorted((state['anchor'],pane['cursor'])); hi += 1
+                        selected=selection_bounds(state,pane['cursor'],len(text))
+                        lo,hi=selected or (0,0)
                         a,b = max(start,lo),min(end,hi)
                         if a < b:
-                            prefix = sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text[start:a])
+                            prefix = cell_width(text[start:a])
                             paint(window,top+1+line,nav_width+1+prefix,text[a:b],edit_width-prefix,curses.A_REVERSE)
                 if number == state['pane'] and not state['tree']:
                     start = rows[cursor_row][0]
-                    offset = sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text[start:pane['cursor']])
+                    offset = cell_width(text[start:pane['cursor']])
                     cursor = (top+1+cursor_row-pane['scroll'], min(width-2, nav_width+1+offset))
-            paint(window,height-3,0,'Ctrl-S save  Ctrl-Q quit  Ctrl-W split  Tab navigator  Ctrl-J other pane  ? help',width-1,curses.A_DIM)
+            paint(window,height-3,0,'Ctrl-S save · Ctrl-Q quit · Ctrl-W split · Tab tree · Ctrl-J pane · ? help',width-1,curses.A_DIM)
             paint(window,height-2,0,f"{state['mode']} · {'Manuscript' if state['tree'] else 'Writing'} · {len(buffer.text.split())} words · {state['message']}",width-1,curses.A_REVERSE)
             paint(window,height-1,0,(':'+state['command']) if state['mode']=='COMMAND' else '',width-1)
             try:
@@ -129,7 +279,7 @@ def run(scenes, checkpoint, save, split=False,initial=0):
             window.refresh()
             if state['dirty'] and time.monotonic()-state['checkpoint'] >= CHECKPOINT_SECONDS:
                 persist()
-            try: key = window.get_wch()
+            try: key = read_key(window)
             except curses.error: continue
             if key == '\x13':
                 persist()
@@ -138,16 +288,16 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 continue
             if key == '\x11': persist(); return
             if key == '\x17':
-                state['split']=not state['split']; state['pane']=0; continue
-            if key == '\n' and state['mode'] != 'INSERT' and state['mode'] != 'COMMAND' and not state['tree']:
-                state['pane']=1-state['pane'] if state['split'] else 0; continue
+                state['split']=not state['split']; state['pane']=0;state['mode']='NORMAL';continue
+            if key == '\n' and state['mode'] == 'NORMAL' and not state['tree']:
+                state['pane']=1-state['pane'] if state['split'] else 0;state['mode']='NORMAL';continue
             if key == '\t': state['tree']=not state['tree']; state['mode']='NORMAL'; continue
             if key == '\x1b': state['mode']='NORMAL'; state['command']=''; continue
             if state['tree']:
                 if key in ('j',curses.KEY_DOWN): active['nav']=min(len(scenes)-1,active['nav']+1)
                 elif key in ('k',curses.KEY_UP): active['nav']=max(0,active['nav']-1)
                 elif key in ('\n','\r',curses.KEY_ENTER):
-                    active.update(scene=active['nav'],cursor=0,scroll=0);state['tree']=False
+                    active.update(scene=active['nav'],cursor=0,scroll=0,column=None);state['tree']=False
                 continue
             if state['mode']=='COMMAND':
                 if key in ('\n','\r'):
@@ -164,10 +314,76 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 elif isinstance(key,str) and key.isprintable():state['command']+=key
                 continue
             pos=active['cursor']; before=buffer.text
-            if key in (curses.KEY_LEFT,) or state['mode']!='INSERT' and key=='h': active['cursor']=max(0,pos-1)
-            elif key in (curses.KEY_RIGHT,) or state['mode']!='INSERT' and key=='l': active['cursor']=min(len(buffer.text),pos+1)
-            elif key in (curses.KEY_UP,) or state['mode']!='INSERT' and key=='k':active['cursor']=move_vertical(buffer.text,pos,-1,edit_width)
-            elif key in (curses.KEY_DOWN,) or state['mode']!='INSERT' and key=='j':active['cursor']=move_vertical(buffer.text,pos,1,edit_width)
+            motion=navigation_key(key)
+            if state['mode']!='INSERT' and key in ('h','j','k','l') and not (state['mode']=='VISUAL' and state['shift_selection']):
+                motion={'h':'left','j':'down','k':'up','l':'right'}[key]
+            selected=selection_bounds(state,pos,len(buffer.text))
+
+            def replace_selection(text):
+                lo,hi=selected or (pos,pos)
+                buffer.replace(lo,hi,text);active['cursor']=lo+len(text)
+                state['mode']=state['return_mode'] if state['mode']=='VISUAL' else state['mode']
+
+            def copy_selection(cut=False):
+                if not selected:
+                    state['message']='Select text with Shift+arrows, Ctrl-A, or v first';return
+                lo,hi=selected;state['register']=buffer.text[lo:hi]
+                system,shelf=clipboard_copy(state['register'])
+                destination='system clipboard' if system else 'Mini clipboard'
+                if shelf:destination+=' + LOOK clips'
+                state['message']=('Cut to ' if cut else 'Copied to ')+destination
+                if not system:state['message']+=' · system clipboard unavailable'
+                if cut:replace_selection('')
+
+            if key=='\x01':
+                state.update(mode='VISUAL',anchor=0,shift_selection=True,return_mode='INSERT' if state['mode']=='INSERT' else 'NORMAL')
+                active['cursor']=len(buffer.text)
+            elif key in ('\x03','\x18'):
+                copy_selection(key=='\x18')
+            elif key in ('\x16','\x02') or key=='P' and state['mode']=='NORMAL':
+                if key in ('\x02','P'):
+                    try:
+                        text=clipboard_history(window)
+                        state['message']='LOOK clips closed' if text is None else 'Inserted from LOOK clips'
+                        if look_clipboard() is None:state['message']='LOOK clips unavailable; install LOOK or use Ctrl-V'
+                    except (OSError,ValueError,RuntimeError,sqlite3.Error,curses.error) as error:
+                        text=None;state['message']='LOOK clips unavailable: '+str(error)
+                else:
+                    text=clipboard_paste()
+                    if text is None:text=state['register'];state['message']='Pasted Mini clipboard · system clipboard unavailable'
+                    else:state['message']='Pasted system clipboard'
+                if text is not None:replace_selection(text)
+            elif motion:
+                shifted='shift-' in motion
+                motion=motion.replace('shift-','')
+                collapse=not shifted and state['mode']=='VISUAL' and state['shift_selection'] and selected and motion in ('left','right')
+                if shifted and state['mode']!='VISUAL':
+                    state.update(anchor=pos,return_mode=state['mode'],mode='VISUAL',shift_selection=True)
+                elif not shifted and state['mode']=='VISUAL' and state['shift_selection']:
+                    state['mode']=state['return_mode']
+                if collapse:
+                    active['cursor']=selected[0 if motion=='left' else 1];active['column']=None
+                elif motion in ('up','down','pageup','pagedown'):
+                    if active['column'] is None:
+                        rows=wrapped(buffer.text,edit_width)
+                        active['column']=cell_width(buffer.text[rows[row_at(rows,pos)][0]:pos])
+                    direction=-1 if motion in ('up','pageup') else 1
+                    if motion in ('pageup','pagedown'):
+                        active['cursor'],active['scroll']=move_page(buffer.text,pos,active['scroll'],direction,edit_width,pane_height-2,active['column'])
+                    else:active['cursor']=move_vertical(buffer.text,pos,direction,edit_width,active['column'])
+                else:
+                    active['column']=None
+                    if motion=='left':active['cursor']=max(0,pos-1)
+                    elif motion=='right':active['cursor']=min(len(buffer.text),pos+1)
+                    elif motion=='home':active['cursor']=buffer.text.rfind('\n',0,pos)+1
+                    elif motion=='end':
+                        end=buffer.text.find('\n',pos);active['cursor']=len(buffer.text) if end<0 else end
+                    elif motion=='ctrl-home':active['cursor']=0
+                    elif motion=='ctrl-end':active['cursor']=len(buffer.text)
+            elif state['mode']=='VISUAL' and state['shift_selection'] and (key in (curses.KEY_BACKSPACE,curses.KEY_DC,'\x7f','\b','\n','\r') or isinstance(key,str) and key.isprintable()):
+                text='' if key in (curses.KEY_BACKSPACE,curses.KEY_DC,'\x7f','\b') else '\n' if key in ('\n','\r') else key
+                replace_selection(text)
+                if text:state['mode']='INSERT'
             elif state['mode']=='INSERT':
                 if key in (curses.KEY_BACKSPACE,'\x7f','\b'):
                     buffer.replace(max(0,pos-1),pos,'');active['cursor']=max(0,pos-1)
@@ -179,13 +395,11 @@ def run(scenes, checkpoint, save, split=False,initial=0):
             elif key=='o':
                 end=buffer.text.find('\n',pos);end=len(buffer.text) if end<0 else end
                 buffer.replace(end,end,'\n');active['cursor']=end+1;state['mode']='INSERT'
-            elif key=='v':state['mode']='VISUAL';state['anchor']=pos
+            elif key=='v':state.update(mode='VISUAL',anchor=pos,shift_selection=False,return_mode='NORMAL')
             elif key in ('d','y') and state['mode']=='VISUAL':
-                lo,hi=sorted((state['anchor'],pos));hi=min(len(buffer.text),hi+1);state['register']=buffer.text[lo:hi]
-                if key=='d':buffer.replace(lo,hi,'');active['cursor']=lo
-                state['mode']='NORMAL'
+                copy_selection(key=='d');state['mode']='NORMAL'
             elif key=='x':buffer.replace(pos,pos+1,'')
-            elif key=='p':buffer.replace(pos,pos,state['register']);active['cursor']+=len(state['register'])
+            elif key=='p':replace_selection(state['register'])
             elif key=='u':buffer.restore()
             elif key=='\x12':buffer.restore(redo=True)
             elif key=='0':active['cursor']=buffer.text.rfind('\n',0,pos)+1
@@ -193,7 +407,8 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 end=buffer.text.find('\n',pos);active['cursor']=len(buffer.text) if end<0 else end
             elif key=='G':active['cursor']=len(buffer.text)
             elif key==':':state['mode']='COMMAND';state['command']=''
-            elif key=='?':state['message']='i/a/o insert · Esc normal · v select, y/d · hjkl · x p u Ctrl-R · 0 $ G · :w :q :split :only'
-            if before!=buffer.text:state['dirty']=True
+            elif key=='?':state['message']='i insert · Esc normal · v visual · Shift+arrows select · PgUp/Dn · Ctrl-Home/End · Ctrl-A all · Ctrl-C/X/V clipboard · Ctrl-B LOOK clips'
+            if before!=buffer.text:state['dirty']=True;active['column']=None
+            elif not motion:active['column']=None
     try: curses.wrapper(interface)
     finally: checkpoint(values())
