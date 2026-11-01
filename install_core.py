@@ -42,7 +42,7 @@ def install(source, destination, bin_dir):
         '#!/bin/sh\nexec '+shlex.quote(str(bin_dir/'mercury'))+' open "$@"\n')
     (destination/'Launch Mercury.command').chmod(0o755)
     print('Mercury Writer runtime installed and verified: '+str(destination))
-    print('Run mercury open, mercury edit --editor nvim, or mercury edit --editor mini')
+    print('Run mercury for Library → Mini, mercury open for the browser, or mercury --editor nvim')
     print('Local server starts when needed. AI, pairing and Fabric sync keep their existing settings.')
 
 

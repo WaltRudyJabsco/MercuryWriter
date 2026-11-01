@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.2 — Your Neovim
+# Mercury Writer 1.6.3 — Mini by Default
 
 A local-first novel writing studio. The browser, your usual Neovim and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -53,7 +53,7 @@ editor. No account, model download, package install or build is required.
 ```sh
 ./install_mercury.sh --minimal
 mercury open
-mercury edit --editor mini
+mercury edit
 ```
 
 Add `~/.local/bin` to PATH if needed. The minimal installer verifies runtime
@@ -69,49 +69,56 @@ Future Crash + LOOK includes an optional companion installation:
 ./install.sh --mercury=install --mercury-source=/path/to/MercuryWriter
 ```
 
-## Compare the terminal desks
+## Terminal writing
+
+`mercury` opens the Library; selecting a project opens **Mini**, the standard
+terminal editor. `mercury edit "My Novel"` opens Mini directly for that project.
+The Library header shows which editor will open your selection.
 
 ```sh
-mercury                                      # Library and organization
-mercury edit "My Novel"                     # Your configured Neovim, chapter folders
-mercury edit "My Novel" --editor nvim --split # Native horizontal split
-mercury edit "My Novel" --editor nvim-desk --split
-mercury edit "My Novel" --editor mini --split
+mercury                                      # Library → Mini
+mercury --split                              # Library → Mini with two writing panes
+mercury --editor mini                        # Explicit Mini selection
+mercury --editor nvim                        # Library → your configured Neovim
+mercury --editor nvim-desk                    # Library → custom Neovim desk
+mercury edit "My Novel" --split
 mercury edit "My Novel" "Arrival" --editor mini
+mercury library --editor mini                # Options work after library too
 ```
 
-The default **Neovim interface** loads your personal configuration and opens
-the manuscript directory, with named chapter folders and scene files. Use your
-usual directory browser to select chapters/scenes; stock Neovim uses Enter
-to open a file/directory and `-` to go up. `:Explore` opens the current file’s
-directory. `:split` splits horizontally; `:split path/to/scene.md` opens another
-scene, and Ctrl-W then W switches panes. `--split` starts two scene buffers in
-a native horizontal split. `:w` saves; `:wq` saves and exits. Written scene files
-commit to the same Mercury history about every two seconds. This restores the
-original navigation while retaining isolated recovery sessions and safe sync.
+Editor names are case-insensitive, so `--editor Mini` works too. Use the single
+hyphenated name `nvim-desk`. Explicit editor options override `MERCURY_EDITOR`;
+without either, Mercury uses Mini even when Neovim is installed.
 
-The optional **Neovim desk** (`--editor nvim-desk`) bypasses personal config and
-retains its full normal/insert/visual behavior. Tab switches manuscript/writing;
-Enter opens a scene. `:MercurySplit` or Space-S toggles two writing rows, each
-with a navigator. `:w` / Ctrl-S writes a scene; changed files commit through
-Mercury about every two seconds. Space-Q writes all buffers and exits.
-Ordinary `:qa` refuses unsaved buffers.
+**Mini** offers Ctrl-W split, Ctrl-J other pane, Tab manuscript navigator,
+Enter select, Ctrl-S save and Ctrl-Q exit/commit. Each split has its own
+navigator. `i`, `a`, `o` enter insert; Esc returns to normal. `hjkl`/arrows move,
+`v` selects, `y`/`d` copies/deletes a selection, `x` deletes, `p` pastes,
+`u`/Ctrl-R undo/redo, and `0`, `$`, `G` navigate. Commands: `:w`, `:q`, `:wq`,
+`:split`, `:only`. `?` shows help. Mini intentionally supports a bounded set of
+Vim commands; Neovim is available for its full editing behavior.
 
-The **built-in desk** offers Ctrl-W split, Ctrl-J other pane, Tab navigator,
-Enter select, Ctrl-S save and Ctrl-Q exit/commit. `i`, `a`, `o` enter insert;
-Esc returns to normal. `hjkl`/arrows move, `v` selects, `y`/`d` copies/deletes
-a selection, `x` deletes, `p` pastes, `u`/Ctrl-R undo/redo, and `0`, `$`, `G`
-navigate. Commands: `:w`, `:q`, `:wq`, `:split`, `:only`. `?` shows help.
-This intentionally bounded editor does not implement all Vim motions, counts,
-operators, registers or macros. Neovim remains available for those.
+The optional **Neovim interface** (`--editor nvim`) loads your personal
+configuration and opens the manuscript directory, with named chapter folders
+and scene files. Use your usual directory browser; stock Neovim uses Enter to
+open and `-` to go up. `:Explore` opens the current file’s directory. `:split`
+splits horizontally, and Ctrl-W then W switches panes. `--split` starts two
+scene buffers in a native horizontal split. `:w` saves; `:wq` saves and exits.
+Written scene files commit to Mercury about every two seconds.
 
-Set `MERCURY_EDITOR=nvim`, `nvim-desk` or `mini` for a default.
-Without an override, Mercury uses your normal Neovim when installed, otherwise mini. `--editor external` uses
-`$EDITOR` (otherwise vi) for one scene. Every session has a separate recovery
-workspace; opening another editor never deletes an existing session's files.
+The optional **Neovim desk** (`--editor nvim-desk`) bypasses personal config.
+Tab switches manuscript/writing; Enter opens a scene. `:MercurySplit` or
+Space-S toggles two writing rows, each with a navigator. `:w` / Ctrl-S writes
+a scene; Space-Q writes all buffers and exits. Ordinary `:qa` refuses unsaved
+buffers.
+
+Set `MERCURY_EDITOR=mini`, `nvim` or `nvim-desk` for a persistent preference.
+`--editor external` uses `$EDITOR` (otherwise vi) for one scene. Every session
+has a separate recovery workspace; opening another editor never deletes an
+existing session’s files. Recovery also defaults to Mini:
 
 ```sh
-mercury recover ~/.cache/mercury/workspaces/PROJECT_ID/session-DIRECTORY --editor mini
+mercury recover ~/.cache/mercury/workspaces/PROJECT_ID/session-DIRECTORY
 ```
 
 ## One identity, offline copies, explicit conflicts
