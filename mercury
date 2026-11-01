@@ -3,7 +3,7 @@ import curses,json,os,re,shutil,subprocess,sys,urllib.request,urllib.error,urlli
 from pathlib import Path
 import argparse,time,shlex
 from mercury_session import Session
-from mercury_terminal import binding_rows,hint_styles,paint_bindings
+from mercury_terminal import binding_rows,hint_styles,paint_bindings,terminal_theme,screen_background,resume_screen,run_screen
 LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json"
 
 def req(b,p,x=None,timeout=5):
@@ -129,19 +129,19 @@ def confirm(stdscr,msg,word="y"):
 
 
 def trash_ui(stdscr,b):
- idx=0;message="";styles=hint_styles()
+ idx=0;message="";theme=terminal_theme();styles=hint_styles(theme);screen_background(stdscr,theme)
  while True:
   code,data=req(b,"/api/library/trash",timeout=2);items=data.get("trash",[]) if code==200 else []
   idx=max(0,min(idx,max(0,len(items)-1)));h,w=stdscr.getmaxyx();stdscr.erase()
   if h<10 or w<40:
    stdscr.addnstr(0,0,'Mercury Trash needs 40 columns × 10 rows; q returns',max(0,w-1));stdscr.refresh()
-   if stdscr.getch() in (ord('q'),27):return
+   if stdscr.getch() in (ord('q'),ord('Q'),ord('\x11'),27):return
    continue
-  stdscr.addnstr(0,0,f"MERCURY {data.get('version','')} · TRASH · {len(items)} deleted project(s)",w-1,curses.A_BOLD)
+  stdscr.addnstr(0,0,f"MERCURY {data.get('version','')} · TRASH · {len(items)} deleted project(s)",w-1,theme['header'])
   footer=binding_rows([('↑↓','select'),('r','restore'),('d','delete permanently'),('←/q','back')],w-1)
   footer_top=h-len(footer);visible_rows=max(0,footer_top-3);top=max(0,idx-visible_rows+1)
   for row,x in enumerate(items[top:top+visible_rows],2):
-   actual=top+row-2;attr=curses.A_REVERSE if actual==idx else curses.A_NORMAL
+   actual=top+row-2;attr=theme['selected'] if actual==idx else theme['body']
    st=x.get("stats",{});line=f"  {x.get('title','Untitled'):<30} {st.get('words',0):>8,} words  {str(x.get('deleted_at',''))[:19]}"
    stdscr.addnstr(row,0,line,w-1,attr)
   if message:stdscr.addnstr(footer_top-1,0,message,w-1);message=""
@@ -161,7 +161,7 @@ def trash_ui(stdscr,b):
     except Exception as e:message=str(e)
 
 def library_ui(stdscr,editor=None,split_view=False):
- curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message="";styles=hint_styles()
+ curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message="";theme=terminal_theme();styles=hint_styles(theme);screen_background(stdscr,theme)
  b,lib=discover()
  def refresh():
   nonlocal lib
@@ -186,13 +186,13 @@ def library_ui(stdscr,editor=None,split_view=False):
   path=[];f=folder
   while f and f in fmap:path.append(fmap[f]["name"]);f=fmap[f].get("parent_id")
   where=" / ".join(reversed(path)) or "Library"
-  stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects",w-1,curses.A_BOLD)
-  stdscr.addnstr(1,0,f"Shared writing library · editor: {editor or os.environ.get('MERCURY_EDITOR') or 'mini'} · filter: {query or '—'}",w-1)
+  stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects",w-1,theme['header'])
+  stdscr.addnstr(1,0,f"Shared writing library · editor: {editor or os.environ.get('MERCURY_EDITOR') or 'mini'} · filter: {query or '—'}",w-1,theme['muted'])
   pane=(w>=96);split=max(48,min(66,w//2)) if pane else w
   listw=split-2 if pane else w-1
   top=max(0,idx-visible_rows+1);visible=items[top:top+visible_rows]
   for row,(kind,x) in enumerate(visible,3):
-   selected=(top+row-3)==idx;attr=curses.A_REVERSE if selected else curses.A_NORMAL
+   selected=(top+row-3)==idx;attr=theme['selected'] if selected else theme['navigation'] if kind=='dir' else theme['body']
    if kind=="dir":line=f"  {x['name']}/"
    else:
     loc="Offline ready" if x.get("local") else "Available here"
@@ -207,11 +207,11 @@ def library_ui(stdscr,editor=None,split_view=False):
     detail += ["AVAILABILITY","Available offline" if x.get("local") else "Available on this computer","Edits sync when connected","",f"Updated  {x.get('modified') or x.get('updated_at') or '—'}"]
    else:
     childp=[p for p in projects if p.get("folder_id")==x.get("folder_id")];detail=[x.get("name","")+"/","",f"{len(childp)} projects",f"{sum((p.get('stats') or {}).get('words',0) for p in childp):,} words",f"{sum(1 for p in childp if p.get('local'))} local replicas"]
-   for n,line in enumerate(detail[:visible_rows],3):stdscr.addnstr(n,col,str(line),max(1,w-col-1),curses.A_BOLD if n==3 else curses.A_NORMAL)
+   for n,line in enumerate(detail[:visible_rows],3):stdscr.addnstr(n,col,str(line),max(1,w-col-1),theme['clips'] if n==3 else theme['body'])
   paint_bindings(stdscr,footer_top,footer,styles)
   if message:stdscr.addnstr(footer_top-1,0,message,w-1);message=""
   stdscr.refresh();key=stdscr.getch()
-  if key in (ord("q"),27):return
+  if key in (ord("q"),ord("Q"),ord("\x11"),27):return
   if key in (curses.KEY_UP,ord("k")):idx=max(0,idx-1)
   elif key in (curses.KEY_DOWN,ord("j")):idx=min(max(0,len(items)-1),idx+1)
   elif key==curses.KEY_PPAGE:idx=max(0,idx-max(1,visible_rows))
@@ -238,10 +238,12 @@ def library_ui(stdscr,editor=None,split_view=False):
    kind,x=items[idx]
    if kind=="dir":folder=x["folder_id"];idx=0;query=""
    else:
+    try:curses.def_prog_mode()
+    except curses.error:pass
     curses.endwin()
     try:d=edit_project(b,x,editor=editor,split=split_view);message=f"SYNCED · {d.get('changed',0)} scene(s)"
     except Exception as e:message=str(e)
-    stdscr.refresh()
+    finally:resume_screen(stdscr)
   elif items and key==ord("r"):
    kind,x=items[idx];name=prompt(stdscr,"Rename to:")
    if name:
@@ -278,9 +280,9 @@ def library_ui(stdscr,editor=None,split_view=False):
      try:post(b,"/api/library/delete",{"project_id":x["project_id"]});message="Project + local replica moved to recoverable trash";refresh()
      except Exception as e:message=str(e)
 
-def library(editor=None,split=False):curses.wrapper(library_ui,editor,split)
+def library(editor=None,split=False):run_screen(library_ui,editor,split)
 def trash():
- b,_=discover();curses.wrapper(lambda stdscr:trash_ui(stdscr,b))
+ b,_=discover();run_screen(lambda stdscr:trash_ui(stdscr,b))
 def remove_local(name):
  b,l=discover();p=pick(l,name)
  if input(f'Remove local replica of "{p["title"]}"? [y/N] ').strip().lower()=="y":post(b,"/api/library/remove-local",{"project_id":p["project_id"]});print("REMOVED LOCAL · Library project kept")

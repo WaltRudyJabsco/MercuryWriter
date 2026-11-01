@@ -190,7 +190,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_6.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_7.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -527,6 +527,47 @@ class MiniWritingTests(unittest.TestCase):
 
 
 class TerminalHintTests(unittest.TestCase):
+    def test_palette_uses_multiple_roles_and_explicit_readable_text_colors(self):
+        from mercury_terminal import terminal_theme
+        from unittest.mock import patch
+        with patch.object(curses,'has_colors',return_value=True),patch.object(curses,'start_color'),patch.object(curses,'COLORS',256,create=True),patch.object(curses,'COLOR_PAIRS',256,create=True),patch.object(curses,'init_pair') as init,patch.object(curses,'color_pair',side_effect=lambda index:index<<8):
+            theme=terminal_theme()
+        self.assertGreaterEqual(len({call.args[1] for call in init.call_args_list}),8)
+        self.assertNotIn(-1,init.call_args_list[0].args[1:])
+        self.assertEqual(len({theme['normal'],theme['insert'],theme['visual']}),3)
+
+    @unittest.skipUnless(os.name=='posix','Requires a real curses terminal')
+    def test_quit_needs_no_enter_after_returning_from_mini(self):
+        import fcntl,pty,select,struct,termios,time
+        with tempfile.TemporaryDirectory() as temporary:
+            script=Path(temporary)/'nested.py'
+            script.write_text('import sys,importlib.machinery\nsys.path.insert(0,'+repr(str(ROOT))+')\nimport mercury_desk\nc=importlib.machinery.SourceFileLoader("cli",'+repr(str(ROOT/'mercury'))+').load_module()\nc.discover=lambda:("local",{"version":"LIBRARY_MARKER","projects":[{"project_id":"one","title":"Sample"}]})\nc.req=lambda *a,**k:(200,{"projects":[{"project_id":"one","title":"Sample"}]})\ndef edit(*a,**k):\n mercury_desk.run([dict(scene_id="one",chapter_title="Chapter",scene_title="Scene",chapter_index=0,scene_index=0,text="draft")],lambda rows:None,lambda:"Saved")\n return {"changed":0}\nc.edit_project=edit\nc.library()\nprint("EXITED",flush=True)\n')
+            entry=Path(temporary)/'entry.txt'
+            script.write_text(script.read_text().replace('c.library()\n','import termios\nfrom pathlib import Path\nPath('+repr(str(entry))+').write_text(repr(termios.tcgetattr(sys.stdin.fileno())))\nc.library()\n'))
+            master,slave=pty.openpty();before=termios.tcgetattr(slave)
+            fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,100,0,0))
+            process=subprocess.Popen([sys.executable,str(script)],stdin=slave,stdout=slave,stderr=slave,env=dict(os.environ,TERM='xterm-256color'))
+            output=b'';stage=0;canonical=None;deadline=time.monotonic()+5
+            try:
+                while time.monotonic()<deadline and process.poll() is None:
+                    if select.select([master],[],[],.05)[0]:output+=os.read(master,65536)
+                    if stage==0 and b'LIBRARY_MARKER' in output:os.write(master,b'\n');stage=1;output=b''
+                    elif stage==1 and b'NORMAL' in output:os.write(master,b'\x11');stage=2;output=b''
+                    elif stage==2 and b'SYNCED' in output:
+                        canonical=bool(termios.tcgetattr(slave)[3]&termios.ICANON)
+                        os.write(master,b'q');stage=3
+                self.assertEqual(stage,3,output[-1000:])
+                self.assertFalse(canonical,'Library must restore immediate key input after Mini')
+                self.assertEqual(process.wait(timeout=1),0)
+                import ast
+                actual=termios.tcgetattr(slave);expected=ast.literal_eval(entry.read_text())
+                # BSD may mark pending input for redisplay when canonical mode resumes.
+                actual[3]&=~getattr(termios,'PENDIN',0);expected[3]&=~getattr(termios,'PENDIN',0)
+                self.assertEqual(actual,expected)
+            finally:
+                if process.poll() is None:process.kill();process.wait()
+                os.close(master);os.close(slave)
+
     def test_wrapped_bindings_preserve_all_keys_and_labels_at_narrow_widths(self):
         from mercury_terminal import binding_rows,cells
         bindings=[('Ctrl-S','save'),('Ctrl-B','LOOK clips'),('Shift+arrows','select'),('x','remove local copy'),('q','quit')]
