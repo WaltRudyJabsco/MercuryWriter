@@ -88,7 +88,7 @@ class Session:
             except Exception as error:
                 self.error=str(error);self.record();raise
 
-    def edit(self, editor='nvim', split=False, scene=None):
+    def edit(self, editor='mini', split=False, scene=None):
         stop=threading.Event()
         def watch():
             while not stop.wait(2):

@@ -1,3 +1,11 @@
+# 1.6.3 — Mini by Default
+
+- Selecting a Library project and `mercury edit` now use Mini by default.
+- Direct `mercury --editor mini`, `--editor nvim` and `--editor nvim-desk` open the Library with that editor selected.
+- Library subcommands accept editor/split flags too; editor names are case-insensitive.
+- The Library shows the selected editor and preserves that choice when opening projects.
+- Neovim variants remain explicit options; existing MERCURY_EDITOR preferences are respected.
+
 # 1.6.2 — Your Neovim
 
 - Restore configured Neovim and the chapter/scene directory browser as the default.

@@ -78,7 +78,7 @@ def parse(f):
 def edit_project(b,p,scene=None,editor=None,split=False):
  code,bundle=req(b,"/api/library/bundle?id="+urllib.parse.quote(p["project_id"]))
  if code!=200:raise RuntimeError(bundle.get("error","Could not load project"))
- chosen=editor or os.environ.get("MERCURY_EDITOR") or ("nvim" if shutil.which("nvim") else "mini")
+ chosen=editor or os.environ.get("MERCURY_EDITOR") or "mini"
  session=Session(b,bundle,req)
  try:return session.edit(chosen,split,scene)
  except Exception as error:raise RuntimeError(f"{error} · local session kept at {session.root}") from error
@@ -111,7 +111,7 @@ def recover(path,editor=None,split=False):
  root=Path(path).expanduser().resolve();record=json.loads((root/'session.json').read_text())
  bundle=record['bundle'];bundle['revision']={'revision_id':record['base_revision']}
  session=Session(record['server'],bundle,req,root=root)
- result=session.edit(editor or os.environ.get('MERCURY_EDITOR') or ('nvim' if shutil.which('nvim') else 'mini'),split)
+ result=session.edit(editor or os.environ.get('MERCURY_EDITOR') or 'mini',split)
  print('SAVED · '+str(result['changed'])+' scene(s)')
 
 
@@ -153,7 +153,7 @@ def trash_ui(stdscr,b):
     try:post(b,"/api/library/purge",{"trash_id":x["trash_id"]});message="Deleted permanently"
     except Exception as e:message=str(e)
 
-def library_ui(stdscr):
+def library_ui(stdscr,editor=None,split_view=False):
  curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message=""
  b,lib=discover()
  def refresh():
@@ -174,7 +174,7 @@ def library_ui(stdscr):
   while f and f in fmap:path.append(fmap[f]["name"]);f=fmap[f].get("parent_id")
   where=" / ".join(reversed(path)) or "Library"
   stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects",w-1,curses.A_BOLD)
-  stdscr.addnstr(1,0,f"Shared writing library · filter: {query or '—'}",w-1)
+  stdscr.addnstr(1,0,f"Shared writing library · editor: {editor or os.environ.get('MERCURY_EDITOR') or 'mini'} · filter: {query or '—'}",w-1)
   pane=(w>=96);split=max(48,min(66,w//2)) if pane else w
   listw=split-2 if pane else w-1
   top=max(0,idx-(h-7));visible=items[top:top+max(1,h-7)]
@@ -227,7 +227,7 @@ def library_ui(stdscr):
    if kind=="dir":folder=x["folder_id"];idx=0;query=""
    else:
     curses.endwin()
-    try:d=edit_project(b,x);message=f"SYNCED · {d.get('changed',0)} scene(s)"
+    try:d=edit_project(b,x,editor=editor,split=split_view);message=f"SYNCED · {d.get('changed',0)} scene(s)"
     except Exception as e:message=str(e)
     stdscr.refresh()
   elif items and key==ord("r"):
@@ -266,7 +266,7 @@ def library_ui(stdscr):
      try:post(b,"/api/library/delete",{"project_id":x["project_id"]});message="Project + local replica moved to recoverable trash";refresh()
      except Exception as e:message=str(e)
 
-def library():curses.wrapper(library_ui)
+def library(editor=None,split=False):curses.wrapper(library_ui,editor,split)
 def trash():
  b,_=discover();curses.wrapper(lambda stdscr:trash_ui(stdscr,b))
 def remove_local(name):
@@ -329,23 +329,29 @@ def doctor():
 
 def main():
  parser=argparse.ArgumentParser(description="Mercury Writer · one manuscript, browser and terminal views")
+ editors=['nvim','nvim-desk','mini','external']
+ def editor_options(command,library=False,subcommand=False):
+  settings={'default':argparse.SUPPRESS} if subcommand and library else {}
+  command.add_argument('--editor',dest='library_editor' if library else 'editor',type=str.casefold,choices=editors,help='mini: built-in editor (default); nvim: your usual Neovim; nvim-desk: custom Mercury layout',**settings)
+  command.add_argument('--split',dest='library_split' if library else 'split',action='store_true',**settings)
+ editor_options(parser,library=True)
  commands=parser.add_subparsers(dest='command')
- for name in ('library','projects','ls','trash','status','reset','conflicts'):commands.add_parser(name)
+ for name in ('library','projects','ls'):editor_options(commands.add_parser(name),library=True,subcommand=True)
+ for name in ('trash','status','reset','conflicts'):commands.add_parser(name)
  command=commands.add_parser('resolve');command.add_argument('project');command.add_argument('revision')
  for name in ('edit','recover'):
   command=commands.add_parser(name)
   command.add_argument('project' if name=='edit' else 'workspace',nargs=None if name=='recover' else '?')
   if name=='edit':command.add_argument('scene',nargs='?')
-  command.add_argument('--editor',choices=['nvim','nvim-desk','mini','external'],help='nvim: your usual Neovim (default when installed); nvim-desk: custom Mercury layout; mini: built-in editor')
-  command.add_argument('--split',action='store_true')
+  editor_options(command)
  for name in ('remove-local','delete','link','open'):
   command=commands.add_parser(name);command.add_argument('project',nargs='?')
  command=commands.add_parser('sync');command.add_argument('action',nargs='?',default='status',choices=['on','off','status','now'])
  command=commands.add_parser('doctor');command.add_argument('mode',nargs='?',choices=['airplane'])
  args=parser.parse_args()
- if args.command in (None,'library','projects','ls'):library()
- elif args.command=='edit':edit(args.project,args.scene,args.editor,args.split)
- elif args.command=='recover':recover(args.workspace,args.editor,args.split)
+ if args.command in (None,'library','projects','ls'):library(args.library_editor,args.library_split)
+ elif args.command=='edit':edit(args.project,args.scene,args.editor or args.library_editor,args.split or args.library_split)
+ elif args.command=='recover':recover(args.workspace,args.editor or args.library_editor,args.split or args.library_split)
  elif args.command=='trash':trash()
  elif args.command=='remove-local':remove_local(args.project)
  elif args.command=='delete':delete_project(args.project)

@@ -189,7 +189,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_2.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_3.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -246,7 +246,49 @@ class StorageTests(unittest.TestCase):
 
 
 class EditorTests(unittest.TestCase):
-    def test_default_neovim_uses_chapter_tree_and_personal_config(self):
+    def load_cli(self):
+        import importlib.machinery
+        loader=importlib.machinery.SourceFileLoader('mercury_cli_for_test',str(ROOT/'mercury'))
+        spec=importlib.util.spec_from_loader(loader.name,loader)
+        cli=importlib.util.module_from_spec(spec);loader.exec_module(cli)
+        return cli
+
+    def test_library_editor_options_work_directly_and_after_subcommands(self):
+        from unittest.mock import Mock,patch
+        cli=self.load_cli();cli.library=Mock();cli.edit=Mock()
+        cases=[([],None,False),(['--editor','Mini'],'mini',False),
+               (['--editor','nvim-desk','--split'],'nvim-desk',True),
+               (['library','--editor','Nvim'],'nvim',False),
+               (['--editor','mini','library'],'mini',False)]
+        for args,editor,split in cases:
+            with self.subTest(args=args),patch.object(sys,'argv',['mercury',*args]):cli.main()
+            cli.library.assert_called_with(editor,split)
+        with patch.object(sys,'argv',['mercury','edit','Book','--editor','Mini']):cli.main()
+        cli.edit.assert_called_once_with('Book',None,'mini',False)
+
+    def test_mini_is_default_and_explicit_or_environment_editor_still_wins(self):
+        from unittest.mock import Mock,patch
+        cli=self.load_cli();cli.req=Mock(return_value=(200,{'scenes':[]}));cli.Session=Mock()
+        with patch.dict(os.environ,{},clear=True):
+            cli.edit_project('local',{'project_id':'book'})
+            cli.Session.return_value.edit.assert_called_with('mini',False,None)
+        with patch.dict(os.environ,{'MERCURY_EDITOR':'nvim'}):
+            cli.edit_project('local',{'project_id':'book'})
+            cli.Session.return_value.edit.assert_called_with('nvim',False,None)
+            cli.edit_project('local',{'project_id':'book'},editor='mini',split=True)
+            cli.Session.return_value.edit.assert_called_with('mini',True,None)
+
+    def test_library_selection_preserves_editor_and_requested_split(self):
+        from unittest.mock import Mock,patch
+        cli=self.load_cli()
+        cli.discover=Mock(return_value=('local',{'projects':[{'project_id':'book','title':'Book'}]}))
+        cli.edit_project=Mock(return_value={'changed':0});cli.req=Mock(return_value=(200,{'projects':[]}))
+        window=Mock();window.getmaxyx.return_value=(24,100);window.getch.side_effect=[10,ord('q')]
+        with patch.object(cli.curses,'curs_set'),patch.object(cli.curses,'endwin'):
+            cli.library_ui(window,'mini',False)
+        cli.edit_project.assert_called_once_with('local',{'project_id':'book','title':'Book'},editor='mini',split=False)
+
+    def test_neovim_option_uses_chapter_tree_and_personal_config(self):
         from unittest.mock import Mock,patch
         with tempfile.TemporaryDirectory() as temporary, patch('mercury_session.Path.home',return_value=Path(temporary)):
             scenes=[{'chapter_index':0,'chapter_title':'First chapter','scene_index':0,'scene_title':'Arrival','scene_id':'s1','text':'First draft'},
@@ -260,7 +302,7 @@ class EditorTests(unittest.TestCase):
                 Path(session.scenes[1]['path']).write_text('Edited in another chapter')
                 return Mock(returncode=0)
             with patch('mercury_session.shutil.which',return_value='/usr/bin/nvim'),patch('mercury_session.subprocess.run',side_effect=edit):
-                session.edit()
+                session.edit('nvim')
             self.assertEqual(request.call_args.args[2]['scenes'],[{'scene_id':'s2','text':'Edited in another chapter'}])
 
     def test_native_neovim_split_and_custom_desk_are_separate_options(self):
