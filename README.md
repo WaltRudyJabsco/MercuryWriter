@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.0 — Two Places
+# Mercury Writer 1.6.1 — One Library
 
 A local-first novel writing studio. The browser, focused Neovim desk and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -6,6 +6,30 @@ alone; paired Future Crash + LOOK nodes add offline replication, model routing
 and accountless research when available.
 
 ![Mercury Writer](screenshots/MercuryWriter_Dark_Editor.png)
+
+## Open a project, online or offline
+
+**Open** shows Mercury Library. Search by project title or author and open a
+manuscript without choosing a computer or filesystem. Available offline means
+its current copy is verified on this computer. **Import file** is a separate
+action for external `.mercury`, Markdown or text files.
+
+`mercury` / `mercury library` opens the terminal catalogue; `mercury open` opens
+the same library in the browser. Paired computers replicate project identities,
+manuscripts and revision history. Work offline from a local copy; reconnect to
+exchange edits. The 3090 is a backup-bearing peer, not a server required for writing.
+
+Readable project copies are under `~/Mercury Writer Documents/NAME/project.mercury`.
+The internal library and revisions live in `~/Applications/Mercury-Writer/library`
+on macOS and `~/.local/share/mercury-writer/library` on Linux. Use the Library for
+normal editing; these paths are for inspection/export/recovery.
+
+The updated Fabric recovery inventory explicitly includes Mercury's library,
+revision history and recovery state on the 3090 in its existing encrypted
+FabBack repository. A receipt reports manuscript/revision counts only after
+restore verification. Sync and backup are separate: edits first reach the 3090,
+then the configured backup protects a point in time. Other documents/media are
+still outside this targeted scope.
 
 ## Browser split view
 

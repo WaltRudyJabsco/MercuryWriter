@@ -24,7 +24,7 @@ from datetime import datetime
 import mercury_sync
 import mercury_fabric
 
-VERSION="1.6.0"
+VERSION="1.6.1"
 HOST="127.0.0.1"
 PORT=8765
 WEB_ENDPOINT=os.environ.get("OLLAMA_WEB_SEARCH_URL","https://ollama.com/api/web_search")
@@ -394,6 +394,10 @@ def _lcommit(project,parent=None,source="server",force=False,merge_parents=None)
     digest=_project_digest(project)
     if current and not merge_parents and current.get("content_sha256")==digest:
         return {"saved":False,"project_id":pid,"revision":current,"reason":"unchanged"}
+    if current and not merge_parents:
+        previous=_lproj(pid)
+        if previous and _content_identity(previous)==_content_identity(project):
+            return {"saved":False,"project_id":pid,"revision":current,"reason":"unchanged"}
     current_id=current.get("revision_id") if current else None
     if current and not force and parent!=current_id:
         meta=_revision_envelope(project,parent,source)
