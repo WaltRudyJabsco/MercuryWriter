@@ -89,6 +89,10 @@ def edit(name=None,scene=None,editor=None,split=False):
  print(f"SAVED · {result.get('changed',0)} scene(s) · recovery: {result['workspace']}")
 
 def sync_command(action):
+ try:
+  code,version=req(LOCAL,'/api/version',timeout=1)
+  if code!=200 or version.get('name')!='Mercury Writer':raise RuntimeError('Port 8765 is not Mercury; check the local service')
+ except OSError:start_local()
  if action in ('on','off'):
   result=post(LOCAL,'/api/sync/config',{'enabled':action=='on'})
   print('Mercury Fabric sync '+('enabled' if result['enabled'] else 'disabled')+' on this node')
