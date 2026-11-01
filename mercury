@@ -84,7 +84,7 @@ def edit_project(b,p,scene=None,editor=None,split=False):
  except Exception as error:raise RuntimeError(f"{error} · local session kept at {session.root}") from error
 
 def edit(name=None,scene=None,editor=None,split=False):
- b,lib=discover();project=pick(lib,name);print(f"MERCURY · {project['title']} · {b}")
+ b,lib=discover();project=pick(lib,name);print(f"MERCURY · {project['title']}")
  result=edit_project(b,project,scene,editor,split)
  print(f"SAVED · {result.get('changed',0)} scene(s) · recovery: {result['workspace']}")
 
@@ -173,8 +173,8 @@ def library_ui(stdscr):
   path=[];f=folder
   while f and f in fmap:path.append(fmap[f]["name"]);f=fmap[f].get("parent_id")
   where=" / ".join(reversed(path)) or "Library"
-  stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects · {lib.get('node_name','')}",w-1,curses.A_BOLD)
-  stdscr.addnstr(1,0,f"{b}  ·  filter: {query or '—'}",w-1)
+  stdscr.addnstr(0,0,f"MERCURY {lib.get('version','')} · {where} · {len(projects)} projects",w-1,curses.A_BOLD)
+  stdscr.addnstr(1,0,f"Shared writing library · filter: {query or '—'}",w-1)
   pane=(w>=96);split=max(48,min(66,w//2)) if pane else w
   listw=split-2 if pane else w-1
   top=max(0,idx-(h-7));visible=items[top:top+max(1,h-7)]
@@ -182,8 +182,8 @@ def library_ui(stdscr):
    selected=(top+row-3)==idx;attr=curses.A_REVERSE if selected else curses.A_NORMAL
    if kind=="dir":line=f"  {x['name']}/"
    else:
-    loc="LOCAL" if x.get("local") else "FABRIC"
-    line=f"  {x.get('title','Untitled'):<28} {loc:<6} {x.get('project_id','')[:8]}"
+    loc="Offline ready" if x.get("local") else "Available here"
+    line=f"  {x.get('title','Untitled'):<28} {loc}"
    stdscr.addnstr(row,0,line,listw,attr)
   if pane and items:
    kind,x=items[idx];col=split+1
@@ -191,7 +191,7 @@ def library_ui(stdscr):
     st=x.get("stats",{});policy=x.get("availability","cache");rev=x.get("revision_id","")[:16]
     detail=[x.get("title","Untitled"),"",f"{st.get('words',0):,} words · {st.get('pages',0)} pages",f"{st.get('chapters',0)} chapters · {st.get('scenes',0)} scenes",""]
     if x.get("author"):detail += [f"Author   {x.get('author')}",""]
-    detail += ["AVAILABILITY",f"{'LOCAL REPLICA' if x.get('local') else 'FABRIC ONLY'}",f"Policy   {policy}",f"Node     {lib.get('node_name','')}","","IDENTITY",f"Project  {x.get('project_id','')[:12]}",f"Revision {rev or '—'}","",f"Updated  {x.get('modified') or x.get('updated_at') or '—'}"]
+    detail += ["AVAILABILITY","Available offline" if x.get("local") else "Available on this computer","Edits sync when connected","",f"Updated  {x.get('modified') or x.get('updated_at') or '—'}"]
    else:
     childp=[p for p in projects if p.get("folder_id")==x.get("folder_id")];detail=[x.get("name","")+"/","",f"{len(childp)} projects",f"{sum((p.get('stats') or {}).get('words',0) for p in childp):,} words",f"{sum(1 for p in childp if p.get('local'))} local replicas"]
    for n,line in enumerate(detail[:max(0,h-5)],3):stdscr.addnstr(n,col,str(line),max(1,w-col-1),curses.A_BOLD if n==3 else curses.A_NORMAL)
@@ -210,7 +210,7 @@ def library_ui(stdscr):
    if folder:folder=fmap.get(folder,{}).get("parent_id");idx=0
   elif key==ord("/"):query=prompt(stdscr,"Filter:");idx=0
   elif key==ord("c"):query=""
-  elif key==ord("o"):webbrowser.open(b);message="Opened Mercury Writer in browser"
+  elif key==ord("o"):webbrowser.open(b+"/?library=1");message="Opened Mercury Library in browser"
   elif key==ord("T"):trash_ui(stdscr,b);refresh();message="Returned from Trash"
   elif key==ord("n"):
    name=prompt(stdscr,"New project name:")
@@ -362,7 +362,7 @@ def main():
   b,lib=discover();print(f"MERCURY {lib.get('version','')} · {len(lib.get('projects',[]))} projects · {lib.get('node_name')} · {b}")
  elif args.command in ('link','open'):
   b,lib=discover();identity=(args.project or '').removeprefix('mercury:')
-  if args.command=='open' and not identity and not lib.get('projects'):webbrowser.open(b);return
+  if args.command=='open' and not identity:webbrowser.open(b+'/?library=1');return
   project=pick(lib,identity or None)
   if args.command=='link':print(f"[{project['title'].replace('[',' ').replace(']',' ')}](mercury:{project['project_id']})")
   else:webbrowser.open(b+'/?project='+urllib.parse.quote(project['project_id']))

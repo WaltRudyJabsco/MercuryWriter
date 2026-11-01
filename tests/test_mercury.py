@@ -62,6 +62,13 @@ class StorageTests(unittest.TestCase):
         stale=self.commit(self.a,parent=first['revision']['revision_id'])
         self.assertTrue(stale['conflict']);self.assertTrue(Path(stale['conflict_path']).exists())
 
+    def test_unchanged_legacy_autosave_does_not_create_revision_or_conflict(self):
+        first=self.commit(self.a)
+        project=copy.deepcopy(self.p);project['modified']='later clock value only'
+        result=self.commit(self.a,project,parent='stale-browser-parent')
+        self.assertFalse(result['saved']);self.assertEqual(result['revision'],first['revision'])
+        self.assertEqual(len(list(self.a._lf('book-1','revisions').glob('*.json'))),1)
+
     def test_concurrent_saves_cannot_both_advance(self):
         first=self.commit(self.a);barrier=threading.Barrier(2);results=[]
         other_server=server_at(self.root/'a')
@@ -182,7 +189,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_0.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_1.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -239,6 +246,16 @@ class StorageTests(unittest.TestCase):
 
 
 class EditorTests(unittest.TestCase):
+    def test_cli_open_shows_library_without_a_terminal_project_prompt(self):
+        import importlib.machinery
+        from unittest.mock import Mock,patch
+        loader=importlib.machinery.SourceFileLoader('mercury_cli_for_test',str(ROOT/'mercury'))
+        spec=importlib.util.spec_from_loader(loader.name,loader);cli=importlib.util.module_from_spec(spec);loader.exec_module(cli)
+        cli.discover=lambda:('http://127.0.0.1:8765',{'projects':[{'project_id':'one'},{'project_id':'two'}]})
+        cli.pick=Mock(side_effect=AssertionError('No terminal picker should open'))
+        opened=Mock()
+        with patch.object(cli.webbrowser,'open',opened),patch.object(sys,'argv',['mercury','open']):cli.main()
+        opened.assert_called_once_with('http://127.0.0.1:8765/?library=1')
     @unittest.skipUnless(shutil.which('nvim'),'Neovim not installed')
     def test_neovim_has_two_manuscript_rows_and_shared_scene_buffer(self):
         with tempfile.TemporaryDirectory() as temporary:

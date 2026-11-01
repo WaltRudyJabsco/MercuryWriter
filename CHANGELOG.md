@@ -1,3 +1,12 @@
+# 1.6.1 — One Library
+
+- Open now shows a searchable Mercury Library; Import file is separate.
+- Browser and terminal library views emphasize project names and offline readiness.
+- `mercury open` opens the browser Library without a terminal project picker.
+- Read-only opens, unchanged fields and recovery timers no longer mint revisions.
+- A fresh empty library offers New/Import instead of autosaving the starter sample.
+- Document physical storage, shared identities and the explicit FabBack backup scope.
+
 # 1.6.0 — Two Places
 
 - Two stacked browser writing panes, independent manuscript navigation, resizing,

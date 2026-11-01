@@ -384,6 +384,16 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
 .save-capability{margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:10px;line-height:1.45;color:var(--muted)}
 
 
+
+.library-modal{width:min(760px,94vw)}
+.library-picker-list{display:grid;gap:8px;margin-top:12px;max-height:45vh;overflow:auto}
+.library-entry{display:flex;width:100%;gap:12px;text-align:left;align-items:center;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--ink);cursor:pointer}
+.library-entry:hover,.library-entry:focus-visible{border-color:var(--accent);outline:0}
+.library-entry strong{display:block;font:700 18px var(--serif)}
+.library-entry small{display:block;color:var(--muted);margin-top:5px}
+.library-entry .library-ready{font-size:11px;color:var(--accent);white-space:nowrap}
+@media(max-width:520px){.library-entry{align-items:flex-start;flex-direction:column}.library-modal .modal-body{padding:12px}}
+
 /* Two views share scene objects; each navigator owns its selection and scroll. */
 .workspace.split-view{grid-template-rows:minmax(0,1fr) 8px minmax(0,1fr)}
 .workspace.split-view>.sidebar{grid-column:1;grid-row:1;overflow:hidden}
@@ -562,6 +572,21 @@ body.keyboard-open .mobile-sheet{top:48px;max-height:calc(var(--app-height) - 54
 <input id="fileOpen" type="file" class="hidden">
 <div id="toast" class="toast"></div><div class="measure-wrap"><div id="measurePage" class="measure-page"><div id="measureContent" class="content"></div></div></div>
 
+
+
+<div id="libraryDialog" class="modal-backdrop hidden">
+ <section class="modal library-modal" role="dialog" aria-modal="true" aria-labelledby="libraryHeading">
+  <div class="modal-head" style="display:flex;align-items:center;gap:12px"><span id="libraryHeading">Mercury Library</span><span class="spacer"></span><button class="btn" id="closeLibrary" aria-label="Close project library">×</button></div>
+  <div class="modal-body">
+   <p style="margin-top:0;color:var(--muted)">Your writing projects, available across your paired computers. Open a project here; there is no local or remote folder to choose.</p>
+   <div class="field"><label for="librarySearch">Find a project</label><input id="librarySearch" type="search" placeholder="Search by title or author…" autocomplete="off"></div>
+   <div id="libraryPickerStatus" class="save-note" role="status">Loading projects…</div>
+   <div id="libraryPickerList" class="library-picker-list"></div>
+   <details style="margin-top:18px"><summary>Where are my files?</summary><div id="libraryStorageInfo" class="save-note"></div></details>
+  </div>
+  <div class="modal-foot" style="justify-content:space-between;flex-wrap:wrap"><button class="btn" id="importLibraryFile">Import file…</button><span class="spacer"></span><button class="btn" id="refreshLibraryPicker">Refresh</button><button class="btn" id="newLibraryProject">New project</button></div>
+ </section>
+</div>
 
 <div id="saveModal" class="modal-backdrop hidden">
  <div class="modal">
@@ -783,6 +808,7 @@ function markDirty(){
 }
 async function commitCanonical(source="browser"){
  if(commitInFlight||applyingRemote)return null;
+ if(source==="browser"&&editGeneration===savedGeneration)return {saved:false,reason:"unchanged",revision:canonicalRevision?{revision_id:canonicalRevision}:null};
  commitInFlight=true;
  if(!project.project_id){
    project.project_id=newProjectId();
@@ -849,7 +875,7 @@ async function pullCanonical(force=false){
    const d=await r.json(),rid=d.revision?.revision_id||null;
    if(!force&&generation!==editGeneration)return;
    if(!d.project){
-     if(force||!canonicalRevision)await commitCanonical("browser-bootstrap");
+     if(editGeneration>savedGeneration)await commitCanonical("browser-bootstrap");
      return;
    }
    if(force||rid!==canonicalRevision)await applyCanonicalProject(d.project,d.revision,!force);
@@ -877,8 +903,9 @@ async function bootstrapCanonical(){
      if(generation!==editGeneration||editGeneration>savedGeneration)return;
      if(data.project){
        const rid=data.revision?.revision_id||null;
-       if(canonicalRevision!==rid){snapshotCurrentProject();await applyCanonicalProject(data.project,data.revision,false)}
-     }else await commitCanonical("browser-bootstrap");
+       if(canonicalRevision!==rid||project.project_id!==data.project.project_id){snapshotCurrentProject();await applyCanonicalProject(data.project,data.revision,false)}
+     }else if(editGeneration>savedGeneration)await commitCanonical("browser-bootstrap");
+     else await requestOpen();
    }
  }catch(error){console.warn("Mercury bootstrap:",error);toast(error.message)}
  finally{
@@ -888,12 +915,14 @@ async function bootstrapCanonical(){
 }
 
 function syncFromEditor(){
- const a=active(); if(!a)return;
- a.scene.text=$("#editor").value;
- a.scene.title=$("#titleInput").value || "Untitled Scene"; const tt=$("#touchSceneTitle");if(tt)tt.textContent=a.scene.title;
- a.scene.target=Number($("#sceneTarget").value)||0;
- markDirty(); renderTree(); renderStats(); updateStatus();
+ const a=active();if(!a)return;
+ const text=$("#editor").value,title=$("#titleInput").value||"Untitled Scene",target=Number($("#sceneTarget").value)||0;
+ if((a.scene.text||"")===text&&a.scene.title===title&&(Number(a.scene.target)||0)===target)return;
+ a.scene.text=text;a.scene.title=title;a.scene.target=target;
+ const label=$("#touchSceneTitle");if(label)label.textContent=title;
+ markDirty();renderTree();renderStats();updateStatus();
 }
+
 function selectScene(id){
  syncFromEditor();
  activeId=id; currentBookPage=0;
@@ -1245,6 +1274,7 @@ function renderNotes(){
  $("#chapterNotes").oninput=e=>{a.chapter.notes=e.target.value;markDirty()};
 }
 async function saveServerHistory(silent=true){
+ if(!canonicalRevision&&editGeneration===savedGeneration)return;
  try{
    await commitCanonical("browser");
    // Pull the live editor fields into the project without changing scenes/views.
@@ -1254,7 +1284,6 @@ async function saveServerHistory(silent=true){
      a.scene.title=$("#titleInput").value||"Untitled Scene";
      a.scene.target=Number($("#sceneTarget").value)||0;
    }
-   project.modified=new Date().toISOString();
    const r=await fetch("/api/history/save",{
      method:"POST",
      headers:{"Content-Type":"application/json"},
@@ -1664,7 +1693,14 @@ async function exportPDF(){
  }finally{clearTimeout(timer)}
 }
 
-function requestOpen(){
+async function requestOpen(){
+ if(typeof closeTouchPanels==="function")closeTouchPanels();
+ const dialog=$("#libraryDialog");dialog.classList.remove("hidden");
+ $("#librarySearch").value="";$("#librarySearch").focus();
+ await refreshProjectPicker();
+}
+
+function requestImport(){
  const ok=confirm(
    "Open another manuscript?\n\n"+
    "If the selected file opens successfully, Mercury will keep your current manuscript "+
@@ -2361,8 +2397,61 @@ async function deleteLibraryProject(pid,title){
  try{await libraryPost("/api/library/delete",{project_id:pid});await refreshMercuryLibrary();toast("Project moved to Mercury trash")}
  catch(e){alert(e.message)}}
 async function openLibraryProject(pid){
- try{await commitCanonical("browser");const r=await fetch("/api/library/project?id="+encodeURIComponent(pid),{cache:"no-store"}),d=await r.json();if(!r.ok)throw new Error(d.error||"Project unavailable");snapshotCurrentProject();project=d.project;canonicalRevision=d.revision?.revision_id||null;if(canonicalRevision)localStorage.setItem("mercury_revision",canonicalRevision);activeId=project.chapters?.[0]?.scenes?.[0]?.id||null;localStorage.setItem(STORAGE,JSON.stringify(project));refreshAll();toast(`Opened ${project.title||"project"}`)}
- catch(e){alert("Mercury could not open that project.\n\n"+e.message)}}
+ try{
+   syncFromEditor();
+   const deadline=Date.now()+8000;
+   while(commitInFlight&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,60));
+   if(commitInFlight)throw new Error("Current save is still running. Try opening the project again in a moment.");
+   if(editGeneration>savedGeneration){const saved=await commitCanonical("browser");if(!saved||saved.conflict)throw new Error("The current draft needs save/conflict attention before switching projects.")}
+   const response=await fetch("/api/library/project?id="+encodeURIComponent(pid),{cache:"no-store"}),data=await response.json();
+   if(!response.ok)throw new Error(data.error||"Project unavailable");
+   snapshotCurrentProject();await applyCanonicalProject(data.project,data.revision,false);
+   $("#libraryDialog").classList.add("hidden");
+   history.replaceState(null,"","?project="+encodeURIComponent(pid));
+   toast(`Opened ${project.title||"project"}`);return true;
+ }catch(error){toast(error.message);return false}
+}
+
+let pickerProjects=[],pickerOffline=new Map();
+function drawProjectPicker(){
+ const box=$("#libraryPickerList"),query=$("#librarySearch").value.trim().toLocaleLowerCase();box.replaceChildren();
+ const projects=pickerProjects.filter(item=>`${item.title||""} ${item.author||""}`.toLocaleLowerCase().includes(query));
+ if(!projects.length){const empty=document.createElement("p");empty.className="save-note";empty.textContent=query?"No projects match that search.":"Your library is empty. Create a project, or import a .mercury, Markdown or text file.";box.appendChild(empty);return}
+ projects.forEach(item=>{
+   const button=document.createElement("button");button.className="library-entry";button.setAttribute("aria-label","Open "+(item.title||"Untitled"));
+   const body=document.createElement("span");body.style.flex="1";
+   const title=document.createElement("strong");title.textContent=item.title||"Untitled";
+   const details=document.createElement("small");details.textContent=[item.author,`${formatLibraryNumber(item.stats?.words)} words`,`${item.stats?.chapters||0} chapters`].filter(Boolean).join(" · ");
+   body.append(title,details);const ready=document.createElement("span");ready.className="library-ready";
+   ready.textContent=pickerOffline.get(item.project_id)?"Available offline":item.canonical_available?"Available here":"Waiting for a copy";
+   button.append(body,ready);button.onclick=async()=>{button.disabled=true;try{await openLibraryProject(item.project_id)}finally{button.disabled=false}};box.appendChild(button);
+ });
+}
+async function refreshProjectPicker(){
+ $("#libraryPickerStatus").textContent="Loading projects…";
+ try{
+   const response=await fetch("/api/library",{cache:"no-store"}),catalogue=await response.json();if(!response.ok)throw new Error(catalogue.error||"Library unavailable");
+   pickerProjects=catalogue.projects;pickerOffline=new Map();let sync=null;
+   try{const result=await fetch("/api/sync/status",{cache:"no-store"});if(result.ok)sync=await result.json()}catch{}
+   for(const item of sync?.offline||[])pickerOffline.set(item.project_id,item.ready);
+   $("#libraryPickerStatus").textContent=`${pickerProjects.length} project${pickerProjects.length===1?"":"s"} · `+(sync?.enabled?"Edits sync between paired computers when connected":"Saved on this computer · enable Fabric copies in Project settings to share");
+   $("#libraryStorageInfo").textContent=`Readable offline copies: ${catalogue.documents_dir}. Mercury also keeps its project library and revision history in its application data. Use this Library to open a working project; Import file brings in an external copy. Fabric replicates projects; FabBack protects the 3090’s Mercury data and history when the configured backup is verified.`;
+   drawProjectPicker();
+ }catch(error){$("#libraryPickerStatus").textContent="Mercury’s local library service is unavailable. Start mercury-server on this computer; no internet connection is required.";$("#libraryPickerList").replaceChildren()}
+}
+$("#closeLibrary").onclick=()=>$("#libraryDialog").classList.add("hidden");
+$("#librarySearch").oninput=drawProjectPicker;
+$("#refreshLibraryPicker").onclick=refreshProjectPicker;
+$("#importLibraryFile").onclick=()=>{$("#libraryDialog").classList.add("hidden");requestImport()};
+$("#newLibraryProject").onclick=()=>{$("#libraryDialog").classList.add("hidden");newProject()};
+$("#libraryDialog").addEventListener("keydown",event=>{
+ if(event.key==="Escape"){event.preventDefault();event.stopPropagation();$("#libraryDialog").classList.add("hidden")}
+ if(event.key!=="Tab")return;
+ const controls=[...$("#libraryDialog").querySelectorAll('button:not([disabled]),input,summary')].filter(item=>item.getClientRects().length);
+ const first=controls[0],last=controls[controls.length-1];
+ if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+ else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+});
 
 $("#mercuryTrashBtn")?.addEventListener("click",toggleMercuryTrash);
 applyTheme(localStorage.getItem("mercury_theme")||"dark");
@@ -2372,6 +2461,7 @@ applyZooms();refreshAll();setView("editor");
  if(!ready)return;
  refreshAll();
  await bootstrapCanonical();
+ if(new URLSearchParams(location.search).has("library"))await requestOpen();
  startServerHistory();
 })();
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")saveServerHistory(true)});
