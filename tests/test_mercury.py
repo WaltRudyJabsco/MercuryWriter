@@ -1,4 +1,5 @@
 import copy
+import curses
 import importlib.util
 import json
 from pathlib import Path
@@ -189,7 +190,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_3.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_4.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -371,7 +372,7 @@ class EditorTests(unittest.TestCase):
         scenes=[dict(scene_id='s1',chapter_title='One',scene_title='First',chapter_index=0,scene_index=0,text=''),
                 dict(scene_id='s2',chapter_title='Two',scene_title='Second',chapter_index=1,scene_index=0,text='')]
         saved=[];checkpoints=[]
-        with patch.object(mercury_desk.curses,'wrapper',side_effect=lambda fn:fn(Window())),patch.object(mercury_desk.curses,'raw'),patch.object(mercury_desk.curses,'curs_set'):
+        with patch.object(mercury_desk.curses,'wrapper',side_effect=lambda fn:fn(Window())),patch.object(mercury_desk.curses,'raw'),patch.object(mercury_desk.curses,'curs_set'),patch.object(mercury_desk,'read_key',side_effect=lambda window:window.get_wch()):
             mercury_desk.run(scenes,lambda rows:checkpoints.append(rows),lambda:saved.append(True) or 'Saved')
         self.assertEqual([row['text'] for row in checkpoints[-1]],['A','B'])
         self.assertEqual(saved,[True])
@@ -385,6 +386,115 @@ class EditorTests(unittest.TestCase):
         self.assertIn((12,12),rows)
         self.assertEqual(move_vertical('abc\ndef',2,1,8),6)
         self.assertEqual(rows[-1][1],len(text))
+
+
+class MiniWritingTests(unittest.TestCase):
+    def run_keys(self,text,keys,height=24,width=100):
+        import mercury_desk
+        from unittest.mock import patch
+        frames=[];checkpoints=[];keys=iter(keys)
+        class Window:
+            cursor=None
+            def getmaxyx(self):return height,width
+            def erase(self):pass
+            def keypad(self,*args):pass
+            def timeout(self,*args):pass
+            def addnstr(self,*args):pass
+            def move(self,*position):self.cursor=position
+            def refresh(self):pass
+            def get_wch(self):frames.append(self.cursor);return next(keys)
+        scenes=[dict(scene_id='one',chapter_title='Chapter',scene_title='Scene',chapter_index=0,scene_index=0,text=text)]
+        with patch.object(mercury_desk.curses,'wrapper',side_effect=lambda fn:fn(Window())),patch.object(mercury_desk.curses,'raw'),patch.object(mercury_desk.curses,'curs_set'),patch.object(mercury_desk,'read_key',side_effect=lambda window:window.get_wch()):
+            mercury_desk.run(scenes,lambda rows:checkpoints.append(rows),lambda:'Saved')
+        return checkpoints[-1][0]['text'],frames
+
+    def test_shift_select_copy_cut_and_system_paste_in_insert_mode(self):
+        import mercury_desk
+        from unittest.mock import patch
+        with patch.object(mercury_desk,'clipboard_copy',return_value=(True,True)) as copy,patch.object(mercury_desk,'clipboard_paste',return_value='HI'):
+            text,_=self.run_keys('hello world',['i']+[mercury_desk.curses.KEY_SRIGHT]*5+['\x03','\x18','\x16','\x11'])
+        self.assertEqual(text,'HI world')
+        self.assertEqual([call.args[0] for call in copy.call_args_list],['hello','hello'])
+
+    def test_shift_selection_typing_replaces_selected_text(self):
+        import mercury_desk
+        text,_=self.run_keys('hello',['i',mercury_desk.curses.KEY_SRIGHT,mercury_desk.curses.KEY_SRIGHT,'Z','\x11'])
+        self.assertEqual(text,'Zllo')
+
+    def test_visual_mode_and_internal_register_work_without_desktop_clipboard(self):
+        import mercury_desk
+        from unittest.mock import patch
+        with patch.object(mercury_desk,'clipboard_copy',return_value=(False,False)) as copy,patch.object(mercury_desk,'clipboard_paste',return_value=None):
+            text,_=self.run_keys('héllo',['v','l','d','\x16','\x11'])
+        copy.assert_called_once_with('hé')
+        self.assertEqual(text,'héllo')
+
+    def test_select_all_cut_preserves_entire_unicode_and_multiline_text(self):
+        import mercury_desk
+        from unittest.mock import patch
+        original='世界\nsecond paragraph\n'
+        with patch.object(mercury_desk,'clipboard_copy',return_value=(False,True)) as copy:
+            text,_=self.run_keys(original,['\x01','\x18','\x11'])
+        copy.assert_called_once_with(original);self.assertEqual(text,'')
+
+    def test_page_navigation_preserves_cursor_screen_position_and_home_end(self):
+        import mercury_desk
+        keys=['i']+[curses.KEY_DOWN]*3+[curses.KEY_RIGHT]*4+[curses.KEY_NPAGE,curses.KEY_PPAGE,'\x1b[1;5F','\x1b[1;5H','\x11']
+        original='\n'.join(['abcdefghij']*60)
+        text,frames=self.run_keys(original,keys)
+        self.assertEqual(text,original)
+        self.assertEqual(frames[8],frames[9]);self.assertEqual(frames[8],frames[10])
+        self.assertEqual(frames[-1],(1,25))
+
+    def test_vertical_navigation_remembers_column_across_short_rows(self):
+        text,frames=self.run_keys('abcdefghij\nx\nabcdefghij',['i']+[curses.KEY_RIGHT]*5+[curses.KEY_DOWN,curses.KEY_DOWN,'\x11'])
+        self.assertEqual(frames[6][1],frames[8][1]);self.assertEqual(text,'abcdefghij\nx\nabcdefghij')
+
+    def test_shift_end_and_control_shift_end_select_exclusive_ranges(self):
+        import mercury_desk
+        from unittest.mock import patch
+        with patch.object(mercury_desk,'clipboard_copy',return_value=(True,True)) as copy:
+            self.run_keys('first\nsecond',['\x1b[1;6F','\x03','\x11'])
+        copy.assert_called_once_with('first\nsecond')
+
+    def test_look_copy_records_explicit_text_without_enabling_capture(self):
+        import mercury_desk,sqlite3
+        from types import SimpleNamespace
+        from unittest.mock import Mock,patch
+        shelf=Mock();shelf.observe.return_value=True
+        look=SimpleNamespace(copy_clipboard=Mock(return_value=True),read_clipboard=Mock(return_value='Shared text'),Shelf=Mock(return_value=shelf),sqlite3=sqlite3)
+        with patch.object(mercury_desk,'look_clipboard',return_value=look):
+            self.assertEqual(mercury_desk.clipboard_copy('Writing excerpt'),(True,True))
+            self.assertEqual(mercury_desk.clipboard_paste(),'Shared text')
+        shelf.observe.assert_called_once_with('Writing excerpt');shelf.close.assert_called_once();shelf.set.assert_not_called()
+
+    def test_look_shelf_insertion_returns_to_editor(self):
+        import mercury_desk
+        from unittest.mock import patch
+        with patch.object(mercury_desk,'clipboard_history',return_value='Saved clip'),patch.object(mercury_desk,'look_clipboard',return_value=object()):
+            text,_=self.run_keys('draft',['i','\x02','\x11'])
+        self.assertEqual(text,'Saved clipdraft')
+
+    def test_navigation_decodes_terminfo_and_ansi_modified_keys(self):
+        from mercury_desk import navigation_key
+        self.assertEqual(navigation_key(curses.KEY_SLEFT),'shift-left')
+        for code,name in [('\x1b[1;2A','shift-up'),('\x1b[1;5H','ctrl-home'),('\x1b[1;6F','ctrl-shift-end'),('\x1b[5~','pageup'),('\x1b[6;2~','shift-pagedown')]:
+            self.assertEqual(navigation_key(code),name)
+
+    def test_escape_reader_preserves_the_next_printable_key(self):
+        from mercury_desk import read_key,INPUT_TIMEOUT_MS
+        from unittest.mock import Mock,patch
+        window=Mock();window.get_wch.side_effect=['\x1b','i']
+        with patch.object(curses,'unget_wch') as put_back:
+            self.assertEqual(read_key(window),'\x1b');put_back.assert_called_once_with('i')
+        window.timeout.assert_called_with(INPUT_TIMEOUT_MS)
+        window.get_wch.side_effect=['\x1b','[','1',';','2','D']
+        self.assertEqual(read_key(window),'\x1b[1;2D')
+
+    def test_soft_wrap_boundary_and_display_columns(self):
+        from mercury_desk import move_vertical,row_at,wrapped
+        self.assertEqual(row_at(wrapped('abcdefgh',4),4),1)
+        self.assertEqual(move_vertical('世界ab\n123456',3,1,20),10)
 
 
 if __name__=='__main__':unittest.main()

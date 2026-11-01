@@ -1,3 +1,13 @@
+# 1.6.4 — Writing Keys and LOOK Clips
+
+- Page Up/Down retains the cursor’s screen position and preferred display column.
+- Home/End, Ctrl-Home/End, Shift selection and Ctrl-A work across writing modes.
+- Shift selections can be replaced by typing or deleted; visual mode remains available.
+- Ctrl-C/X/V uses the system clipboard, with an internal register fallback.
+- Copied/cut text joins the installed local LOOK clip shelf; Ctrl-B or normal-mode P inserts a saved clip.
+- Clipboard actions remain explicit; no capture preference changes or clipboard-history syncing.
+- Recognize modified keys through terminfo and common ANSI terminal sequences.
+
 # 1.6.3 — Mini by Default
 
 - Selecting a Library project and `mercury edit` now use Mini by default.
