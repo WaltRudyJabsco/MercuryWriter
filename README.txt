@@ -1,4 +1,4 @@
-# Mercury Writer 1.6.7 — Terminal Color and Clean Exit
+# Mercury Writer 1.6.8 — Quiet Command Colors
 
 A local-first novel writing studio. The browser, your usual Neovim and small
 built-in terminal editor edit the same revisioned manuscripts. Mercury works
@@ -96,9 +96,9 @@ own navigator. `i`, `a`, `o` enter insert; Esc returns to normal. Arrows work in
 all writing modes; `hjkl` also moves in normal and Vim visual mode.
 
 Library, Trash and Mini command bars wrap to fit the terminal, with contrasting
-key labels. The terminal palette uses blue pane headers, gold navigation,
-violet clipboard controls, red quit/delete actions, distinct mode badges and
-light writing text on a dark background. It uses explicit 256-color values
+key labels. Command keys use one blue accent with subdued gray descriptions.
+Mode labels use that same accent, while blue pane headers, the chapter/scene
+highlight and light writing text preserve the desk’s structure. It uses explicit 256-color values
 when supported, with an eight-color and monochrome fallback.
 
 Mini’s hints reflect normal, insert, visual, command and manuscript

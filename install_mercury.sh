@@ -224,7 +224,7 @@ else
 fi
 
 LOCAL_URL="http://127.0.0.1:8765"
-EXPECTED_VERSION="1.6.7"
+EXPECTED_VERSION="1.6.8"
 if command -v curl >/dev/null 2>&1; then
   RUNNING_INFO="$(curl -fsS "$LOCAL_URL/api/version" 2>/dev/null || true)"
   if printf '%s' "$RUNNING_INFO" | grep -q '"Mercury Writer"'; then

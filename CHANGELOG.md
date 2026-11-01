@@ -1,3 +1,9 @@
+# 1.6.8 — Quiet Command Colors
+
+- Use a single blue accent for all command keys, with subdued gray descriptions.
+- Simplify mode labels to that same blue without inverted color badges.
+- Preserve the chapter/scene highlight, pane headers, text selection and writing surface.
+
 # 1.6.7 — Terminal Color and Clean Exit
 
 - Restore immediate Library input after a nested Mini session; q no longer waits for Enter.

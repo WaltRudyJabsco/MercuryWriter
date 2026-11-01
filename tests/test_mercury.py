@@ -190,7 +190,7 @@ class StorageTests(unittest.TestCase):
 
     def test_project_deep_link_serves_editor_and_private_paths_are_not_static(self):
         self.a.ROOT=ROOT;handler=self.a.Handler.__new__(self.a.Handler)
-        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_7.html')
+        self.assertEqual(Path(handler.translate_path('/?project=book-1')).name,'Mercury_Writer_1_6_8.html')
         for path in ['/mercury_server.py','/library/library.json','/../README.md','/%2e%2e/README.md']:
             self.assertEqual(Path(handler.translate_path(path)).name,'.missing-public-resource')
 
@@ -532,9 +532,9 @@ class TerminalHintTests(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(curses,'has_colors',return_value=True),patch.object(curses,'start_color'),patch.object(curses,'COLORS',256,create=True),patch.object(curses,'COLOR_PAIRS',256,create=True),patch.object(curses,'init_pair') as init,patch.object(curses,'color_pair',side_effect=lambda index:index<<8):
             theme=terminal_theme()
-        self.assertGreaterEqual(len({call.args[1] for call in init.call_args_list}),8)
+        self.assertNotEqual(theme['selected'],theme['navigation'])
         self.assertNotIn(-1,init.call_args_list[0].args[1:])
-        self.assertEqual(len({theme['normal'],theme['insert'],theme['visual']}),3)
+        self.assertEqual(len({theme['normal'],theme['insert'],theme['visual'],theme['key']}),1)
 
     @unittest.skipUnless(os.name=='posix','Requires a real curses terminal')
     def test_quit_needs_no_enter_after_returning_from_mini(self):
