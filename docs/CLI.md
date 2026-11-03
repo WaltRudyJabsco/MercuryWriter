@@ -222,8 +222,8 @@ options:
 
 ### Mini writing desk
 
-- **F1 / Esc**: close help
-- **↑↓ / PgUp/PgDn**: scroll help
+- **F1 / Esc / q**: close help
+- **↑↓ / j k / PgUp/PgDn**: scroll help
 
 ### Control means Ctrl alone; Command is not required.
 
@@ -236,6 +236,17 @@ options:
 - **Tab**: toggle manuscript tree; return to normal
 - **Ctrl-B**: open LOOK clips; insert a numbered clip
 - **F1**: open help without changing mode
+
+### Writing panes (outside help)
+
+- **Option/Alt-Shift-W**: switch writing pane; return to normal
+- **Ctrl-Shift-W / Ctrl-Option/Alt-W**: close focused writing pane; keep other pane and all text
+- **Ctrl-J / Enter**: switch pane in normal writing mode; new line in insert mode
+- **:only**: keep focused pane; hide the other
+- **:close**: close focused pane; keep the other
+
+### LOOK Kitty routes pane shortcuts into Mini while it is open. Other terminals must send distinct modified keys; Ctrl-J in normal mode and :close remain available. Closing the only pane leaves it open.
+
 
 ### Normal mode
 
@@ -288,7 +299,11 @@ options:
 
 - **:w / :wq**: save / save and quit
 - **:q**: exit; local recovery files retained
-- **:split / :only**: two writing panes / one pane
+- **:split / :sp**: open two writing panes
+- **:only / :close**: keep focused pane / keep other pane
+
+### The manuscript tree selects existing scenes. Creating, renaming and deleting chapters or scenes is currently available in the web editor.
+
 
 ### LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.
 

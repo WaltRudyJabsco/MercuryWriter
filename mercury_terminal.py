@@ -100,6 +100,7 @@ def paint_bindings(window,start,rows,styles):
 
 def mini_bindings(state):
     common=[('Ctrl-S','save'),('Ctrl-Q','quit'),('Ctrl-B','clips'),('Ctrl-W','split'),('Tab','tree')]
+    if state.get('split'):common += [('Option/Alt-Shift-W','pane'),('Ctrl-Shift-W','close pane')]
     if state.get('tree'):mode=[('↑↓','choose'),('Enter','open scene')]
     elif state['mode']=='INSERT':mode=[('Esc','normal'),('Shift+arrows','select')]
     elif state['mode']=='VISUAL':
@@ -112,14 +113,17 @@ def mini_bindings(state):
 
 def mini_help():
     return [
-        ('Mini writing desk', [('F1 / Esc','close help'),('↑↓ / PgUp/PgDn','scroll help')]),
+        ('Mini writing desk', [('F1 / Esc / q','close help'),('↑↓ / j k / PgUp/PgDn','scroll help')]),
         ('Control means Ctrl alone; Command is not required.',[]),
         ('Every mode', [('Ctrl-S','save'),('Ctrl-Q','quit'),('Ctrl-W','toggle split; return to normal'),('Tab','toggle manuscript tree; return to normal'),('Ctrl-B','open LOOK clips; insert a numbered clip'),('F1','open help without changing mode')]),
+        ('Writing panes (outside help)', [('Option/Alt-Shift-W','switch writing pane; return to normal'),('Ctrl-Shift-W / Ctrl-Option/Alt-W','close focused writing pane; keep other pane and all text'),('Ctrl-J / Enter','switch pane in normal writing mode; new line in insert mode'),(':only','keep focused pane; hide the other'),(':close','close focused pane; keep the other')]),
+        ('LOOK Kitty routes pane shortcuts into Mini while it is open. Other terminals must send distinct modified keys; Ctrl-J in normal mode and :close remain available. Closing the only pane leaves it open.',[]),
         ('Normal mode', [('i / a / o','enter insert mode'),('v','enter Vim visual selection'),('hjkl / arrows','move'),('Ctrl-J / Enter','switch writing pane'),('u / Ctrl-R','undo / redo'),('x','delete character'),('p','paste internal register'),('P','open LOOK clips'),('0 / $ / G','line start / line end / scene end'),(':','enter command'),('?','open help')]),
         ('Insert mode', [('Type','insert text'),('Enter / Ctrl-J','new line'),('Backspace / Delete','delete text'),('Esc','return to normal'),('?','insert a question mark; use F1 for help')]),
         ('Visual selection', [('v then arrows / hjkl','extend Vim selection'),('y / d','copy / cut Vim selection'),('Shift+arrows','start or extend standard selection'),('Type','replace a standard Shift selection'),('Backspace / Delete','remove a standard Shift selection'),('Esc','cancel selection; return to normal')]),
         ('All writing modes', [('Arrows','move cursor'),('PgUp / PgDn','move a screen; retain screen row and preferred column'),('Home / End','line start / end'),('Ctrl-Home / Ctrl-End','scene start / end'),('Shift + navigation','extend selection'),('Ctrl-A','select entire scene'),('Ctrl-C / Ctrl-X / Ctrl-V','copy / cut / paste system clipboard')]),
         ('Manuscript tree', [('↑↓ / j k','select scene'),('Enter','open scene in this pane'),('Tab','return to writing')]),
-        ('Commands', [(':w / :wq','save / save and quit'),(':q','exit; local recovery files retained'),(':split / :only','two writing panes / one pane')]),
+        ('Commands', [(':w / :wq','save / save and quit'),(':q','exit; local recovery files retained'),(':split / :sp','open two writing panes'),(':only / :close','keep focused pane / keep other pane')]),
+        ('The manuscript tree selects existing scenes. Creating, renaming and deleting chapters or scenes is currently available in the web editor.',[]),
         ('LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.',[]),
     ]

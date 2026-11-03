@@ -408,6 +408,50 @@ class EditorTests(unittest.TestCase):
 
 
 class MiniWritingTests(unittest.TestCase):
+    def test_pane_keys_decode_without_losing_modifiers(self):
+        import mercury_desk as desk
+        from unittest.mock import Mock,patch
+        for sequence,action in [('\x17','toggle'),('\x1bW','focus'),('\x1b[119;4u','focus'),
+                                ('\x1b[119;6u','close'),('\x1b[119;7u','close'),
+                                ('\x1b\x17','close'),('\x1b[27;6;119~','close')]:
+            window=Mock();window.get_wch.side_effect=list(sequence)
+            self.assertEqual(desk.pane_action(desk.read_key(window)),action)
+        self.assertIsNone(desk.pane_action('W'))
+        with patch.dict(os.environ,{'KITTY_WINDOW_ID':'test'}),patch.object(desk.sys,'stdout') as output:
+            output.isatty.return_value=True
+            desk.mini_terminal_scope(True);desk.mini_terminal_scope(False)
+            self.assertEqual([call.args[0] for call in output.write.call_args_list],
+                             ['\x1b]1337;SetUserVar=mercury_mini=MQ==\x07','\x1b]1337;SetUserVar=mercury_mini\x07'])
+
+    def test_close_keeps_other_view_only_keeps_focused_view(self):
+        from mercury_desk import change_panes
+        for focused in (0,1):
+            for action,keep in [('close',1-focused),('only',focused),('toggle',1-focused)]:
+                panes=[dict(scene=0,cursor=4,scroll=2,nav=0),dict(scene=1,cursor=8,scroll=6,nav=1)]
+                retained=panes[keep].copy()
+                state=dict(pane=focused,split=True,mode='VISUAL',command='x',shift_selection=True)
+                change_panes(state,panes,action)
+                self.assertEqual(panes[0],retained)
+                self.assertEqual((state['pane'],state['split'],state['mode'],state['command'],state['shift_selection']),
+                                 (0,False,'NORMAL','',False))
+                change_panes(state,panes,'close')
+                self.assertEqual(panes[0],retained)
+
+    def test_modified_pane_keys_do_not_insert_escape_fragments(self):
+        text,_=self.run_keys('', ['i','A','\x17','i','B','\x1b[119;4u','i','C',
+                                 '\x1b[119;6u','i','D','\x1b[119;7u','i','E','\x11'])
+        # Each view retains its own cursor while editing the same scene buffer.
+        self.assertEqual(text,'CADEB')
+
+    def test_pane_help_and_footer_expose_current_actions(self):
+        from mercury_terminal import mini_bindings,mini_help
+        hints=dict(mini_bindings(dict(mode='INSERT',split=True)))
+        self.assertEqual(hints['Option/Alt-Shift-W'],'pane')
+        self.assertEqual(hints['Ctrl-Shift-W'],'close pane')
+        help_text=str(mini_help())
+        for key in ('Ctrl-Option/Alt-W',':close',':sp','Creating, renaming'):
+            self.assertIn(key,help_text)
+
     def run_keys(self,text,keys,height=24,width=100):
         import mercury_desk
         from unittest.mock import patch
