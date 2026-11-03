@@ -234,7 +234,7 @@ def navigation_key(key):
     return None
 
 
-def run(scenes, checkpoint, save, split=False,initial=0,add=None):
+def run(scenes, checkpoint, save, split=False,initial=0,add=None,rename=None):
     """checkpoint writes recoverable local files; save also commits through Mercury."""
     buffers = [Buffer(scene['text']) for scene in scenes]
     if not buffers:
@@ -315,11 +315,11 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None):
             count = 2 if state['split'] else 1
             pane_height = footer_top//count
             if pane_height<3:
-                paint(window,0,0,'Increase terminal height for two writing panes; Ctrl-W closes split',width-1)
+                paint(window,0,0,'Increase terminal height for two panes or press Ctrl-Shift-W to close',width-1)
                 window.refresh()
                 try:key=read_key(window)
                 except curses.error:continue
-                if key=='\x17':state['split']=False;state['pane']=0
+                if pane_action(key) in ('toggle','close'):change_panes(state,panes,'close')
                 elif key=='\x11':persist();return
                 continue
             nav_width = min(NAV_WIDTH, width//3)
@@ -329,7 +329,11 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None):
             for number in range(count):
                 pane = panes[number]; text = buffers[pane['scene']].text
                 top = number*pane_height
-                title = scenes[pane['scene']]['chapter_title']+' / '+scenes[pane['scene']]['scene_title']
+                current = scenes[pane['scene']]
+                chapter_number = f"Chapter {current['chapter_index']+1}"
+                chapter_title = current['chapter_title']
+                chapter = chapter_number if chapter_title == chapter_number else f"{chapter_number} — {chapter_title}"
+                title = f"{chapter} / {current['scene_title']}"
                 paint(window, top, 0, (('▶ ' if number == state['pane'] else '  ')+title).ljust(width-1), width-1, theme['header'] if number==state['pane'] else theme['inactive'])
                 body_height = pane_height-2
                 for row in range(body_height):
@@ -368,8 +372,10 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None):
             paint(window,height-2,len(badge),f" · {'Manuscript' if state['tree'] else 'Writing'} · {len(buffer.text.split())} words · {state['message']}",width-len(badge)-1,theme['body'])
             paint(window,height-1,0,(':'+state['command']) if state['mode']=='COMMAND' else '',width-1,theme['command'])
             try:
-                curses.curs_set(0 if state['tree'] else 1)
-                if not state['tree']: window.move(*cursor)
+                curses.curs_set(0 if state['tree'] and state['mode']!='COMMAND' else 1)
+                if state['mode']=='COMMAND':
+                    window.move(height-1,min(width-2,1+cell_width(state['command'])))
+                elif not state['tree']: window.move(*cursor)
             except curses.error: pass
             window.refresh()
             if state['dirty'] and time.monotonic()-state['checkpoint'] >= CHECKPOINT_SECONDS:
@@ -384,7 +390,7 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None):
                 except Exception as error: state['message']=str(error)
                 continue
             if key == '\x11': persist(); return
-            action=pane_action(key)
+            action='split' if key=='W' and state['mode']=='NORMAL' else pane_action(key)
             if action:
                 change_panes(state,panes,action);continue
             if key in ('\n','\r',curses.KEY_ENTER) and state['mode'] == 'NORMAL' and not state['tree']:
@@ -393,8 +399,10 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None):
             if key == '\x1b': state['mode']='NORMAL'; state['command']=''; continue
             if key=='\x02' and (state['tree'] or state['mode']=='COMMAND'):
                 state['tree']=False;state['mode']='NORMAL';state['command']=''
-            if state['tree']:
-                if key in ('s','c'):create('scene' if key=='s' else 'chapter')
+            if state['tree'] and state['mode']!='COMMAND':
+                if key in ('r','R'):
+                    state.update(mode='COMMAND',command='rename-scene ' if key=='r' else 'rename-chapter ')
+                elif key in ('s','c'):create('scene' if key=='s' else 'chapter')
                 elif key in ('j',curses.KEY_DOWN): active['nav']=min(len(scenes)-1,active['nav']+1)
                 elif key in ('k',curses.KEY_UP): active['nav']=max(0,active['nav']-1)
                 elif key in ('\n','\r',curses.KEY_ENTER):
@@ -412,7 +420,19 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None):
                     elif command in ('only','close'):change_panes(state,panes,command)
                     elif command.split(' ',1)[0] in ('scene','chapter'):
                         kind,_,title=command.partition(' ');create(kind,title)
-                    elif command not in ('w',):state['message']='Commands: :w :q :wq :split :only :close :scene [title] :chapter [title]'
+                    elif command.split(' ',1)[0] in ('rename-scene','rename-chapter'):
+                        action,_,title=command.partition(' ')
+                        target=scenes[active['nav'] if state['tree'] else active['scene']]
+                        if rename is None:
+                            state['message']='Renaming requires a Mercury session';continue
+                        try:
+                            persist()
+                            rename(action.removeprefix('rename-'),target['scene_id'],title)
+                        except Exception as error:
+                            state['message']=str(error);continue
+                        try:state['message']='Renamed · '+save();state['dirty']=False
+                        except Exception as error:state['message']='Renamed locally · '+str(error)
+                    elif command not in ('w',):state['message']='Commands: :w :q :wq :split :only :close :scene :chapter :rename-scene :rename-chapter'
                 elif key in (curses.KEY_BACKSPACE,'\x7f','\b'):state['command']=state['command'][:-1]
                 elif isinstance(key,str) and key.isprintable():state['command']+=key
                 continue

@@ -97,7 +97,7 @@ Editor names are case-insensitive, so `--editor Mini` works too. Use the single
 hyphenated name `nvim-desk`. Explicit editor options override `MERCURY_EDITOR`;
 without either, Mercury uses Mini even when Neovim is installed.
 
-**Mini** offers Ctrl-W split, Option/Alt-Shift-W other pane, Ctrl-Shift-W close
+**Mini** offers Shift-W split from normal mode or the manuscript tree, Option/Alt-Shift-W other pane, Ctrl-Shift-W close
 the focused pane (Ctrl-Option/Alt-W also works), Ctrl-J other pane in normal
 mode, Tab manuscript
 navigator, Enter select, Ctrl-S save and Ctrl-Q exit/commit. Each split has its
@@ -157,7 +157,10 @@ at the end of the selected chapter or **c** for a new chapter and its first scen
 at the end of the book. Both open ready to type. From normal mode, use
 `:scene My Scene` or `:chapter My Chapter` for optional titles. Additions save
 through Mercury's revision system and stay in local recovery if the server is
-unavailable. Rename and delete remain in the web editor. Mini intentionally supports a
+unavailable. In the tree, **r** renames the selected scene and **R** renames its
+chapter. Normal mode also accepts `:rename-scene TITLE` and `:rename-chapter TITLE`.
+Chapter and scene numbering stays visible. **Shift-W** in the Library opens a
+sibling shell pane through LOOK in Kitty or tmux. Delete remains in the web editor. Mini intentionally supports a
 bounded set of Vim commands; Neovim is available for its full editing behavior.
 
 The optional **Neovim interface** (`--editor nvim`) loads your personal

@@ -198,9 +198,6 @@ save
 Ctrl-Q
 quit
 .TP
-Ctrl-W
-toggle split; return to normal
-.TP
 Tab
 toggle manuscript tree; return to normal
 .TP
@@ -210,6 +207,9 @@ open LOOK clips; insert a numbered clip
 F1
 open help without changing mode
 .SS Writing panes (outside help)
+.TP
+W
+open split in normal mode or the tree
 .TP
 Option/Alt-Shift-W
 switch writing pane; return to normal
@@ -331,6 +331,9 @@ add scene at end of selected chapter; start writing
 c
 add chapter with Scene 1 at end of book; start writing
 .TP
+r / R
+rename selected scene / its chapter
+.TP
 Tab
 return to writing
 .SS Commands
@@ -352,5 +355,12 @@ add scene to current chapter; optional title
 .TP
 :chapter [title]
 add chapter with its first scene; optional title
-.SS New chapters and scenes save through Mercury and remain in local recovery if the server is unavailable. Rename and delete are available in the web editor.
+.SS Titles
+.TP
+:rename-scene TITLE
+rename current scene
+.TP
+:rename-chapter TITLE
+rename current chapter
+.SS New chapters, scenes and titles save through Mercury and remain in local recovery if the server is unavailable. Delete is available in the web editor.
 .SS LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.

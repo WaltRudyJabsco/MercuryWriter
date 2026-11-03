@@ -303,9 +303,11 @@ class EditorTests(unittest.TestCase):
         cli=self.load_cli()
         cli.discover=Mock(return_value=('local',{'projects':[{'project_id':'book','title':'Book'}]}))
         cli.edit_project=Mock(return_value={'changed':0});cli.req=Mock(return_value=(200,{'projects':[]}))
-        window=Mock();window.getmaxyx.return_value=(24,100);window.getch.side_effect=[10,ord('q')]
+        cli.open_library_pane=Mock(return_value='Pane opened')
+        window=Mock();window.getmaxyx.return_value=(24,100);window.getch.side_effect=[ord('W'),10,ord('q')]
         with patch.object(cli.curses,'curs_set'),patch.object(cli.curses,'endwin'):
             cli.library_ui(window,'mini',False)
+        cli.open_library_pane.assert_called_once_with()
         cli.edit_project.assert_called_once_with('local',{'project_id':'book','title':'Book'},editor='mini',split=False)
 
     def test_neovim_option_uses_chapter_tree_and_personal_config(self):

@@ -232,13 +232,13 @@ options:
 
 - **Ctrl-S**: save
 - **Ctrl-Q**: quit
-- **Ctrl-W**: toggle split; return to normal
 - **Tab**: toggle manuscript tree; return to normal
 - **Ctrl-B**: open LOOK clips; insert a numbered clip
 - **F1**: open help without changing mode
 
 ### Writing panes (outside help)
 
+- **W**: open split in normal mode or the tree
 - **Option/Alt-Shift-W**: switch writing pane; return to normal
 - **Ctrl-Shift-W / Ctrl-Option/Alt-W**: close focused writing pane; keep other pane and all text
 - **Ctrl-J / Enter**: switch pane in normal writing mode; new line in insert mode
@@ -295,6 +295,7 @@ options:
 - **Enter**: open scene in this pane
 - **s**: add scene at end of selected chapter; start writing
 - **c**: add chapter with Scene 1 at end of book; start writing
+- **r / R**: rename selected scene / its chapter
 - **Tab**: return to writing
 
 ### Commands
@@ -306,7 +307,12 @@ options:
 - **:scene [title]**: add scene to current chapter; optional title
 - **:chapter [title]**: add chapter with its first scene; optional title
 
-### New chapters and scenes save through Mercury and remain in local recovery if the server is unavailable. Rename and delete are available in the web editor.
+### Titles
+
+- **:rename-scene TITLE**: rename current scene
+- **:rename-chapter TITLE**: rename current chapter
+
+### New chapters, scenes and titles save through Mercury and remain in local recovery if the server is unavailable. Delete is available in the web editor.
 
 
 ### LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.
