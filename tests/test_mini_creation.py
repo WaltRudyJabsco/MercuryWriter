@@ -92,6 +92,22 @@ def test_old_server_cannot_silently_discard_new_sections(writing):
     assert session.additions
 
 
+def test_retried_addition_does_not_acknowledge_unseen_remote_edits(writing):
+    server,session,request=writing
+    scene=session.add('scene','s1')
+    def lost(*args):
+        request(*args)
+        raise OSError('response lost')
+    session.request=lost
+    with pytest.raises(OSError):session.save()
+    project=server._lproj('book-1');project['author']='Another editor'
+    server._lcommit(project,server._lrev('book-1')['revision_id'])
+    session.request=request;session.save()
+    Path(scene['path']).write_text('A later local edit')
+    with pytest.raises(RuntimeError,match='Concurrent draft'):session.save()
+    assert server._lproj('book-1')['chapters'][0]['scenes'][-1]['text']==''
+
+
 def test_invalid_addition_does_not_change_head(writing):
     server,_,_=writing
     before=server._lbundle('book-1')

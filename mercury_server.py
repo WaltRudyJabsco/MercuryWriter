@@ -676,7 +676,12 @@ def _lapply(pid,parent,patches,source,additions=None):
   if not x:continue
   t=q.get("title",x.get("title","Scene"));body=q.get("text",x.get("text",""))
   if x.get("title")!=t or x.get("text","")!=body:x["title"]=t;x["text"]=body;changed+=1
- if not changed:return {"saved":False,"changed":0,"added":len(additions or []),"project_id":pid,"revision":_lrev(pid)}
+ if not changed:
+  revision=_lrev(pid)
+  # Replayed additions acknowledge their IDs, not unseen intervening edits.
+  # Retain the client's older base so its next edit still detects that conflict.
+  if additions and revision and revision.get("parent_revision")!=parent and revision.get("revision_id")!=parent:revision=None
+  return {"saved":False,"changed":0,"added":len(additions or []),"project_id":pid,"revision":revision}
  p["modified"]=datetime.now().isoformat(timespec="seconds");r=_lcommit(p,parent,source);r["changed"]=changed;r["added"]=len(additions or []);return r
 
 def _history_project_dir(project):
