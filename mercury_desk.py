@@ -160,6 +160,7 @@ def read_key(window):
     sequence=key;window.timeout(ESCAPE_TIMEOUT_MS)
     try:
         following=window.get_wch()
+        if following in ('W','\x17'):return key+following
         if following not in ('[','O'):
             if isinstance(following,int):curses.ungetch(following)
             else:curses.unget_wch(following)
@@ -173,6 +174,37 @@ def read_key(window):
     except curses.error:pass
     finally:window.timeout(INPUT_TIMEOUT_MS)
     return sequence
+
+
+def pane_action(key):
+    # Kitty/CSI-u and xterm modifyOtherKeys preserve modifiers that plain Ctrl-W loses.
+    if key=='\x17':return 'toggle'
+    if key in ('\x1bW','\x1b[119;4u','\x1b[87;4u','\x1b[27;4;87~','\x1b[27;4;119~'):return 'focus'
+    if key in ('\x1b\x17','\x1b[119;6u','\x1b[87;6u','\x1b[119;7u','\x1b[27;6;119~','\x1b[27;6;87~','\x1b[27;7;119~'):return 'close'
+    return None
+
+
+def change_panes(state,panes,action):
+    state.update(mode='NORMAL',command='',shift_selection=False)
+    if action=='focus':
+        if state['split']:state['pane']=1-state['pane']
+    elif action=='split':state['split']=True
+    elif action=='only':
+        panes[0],panes[state['pane']]=panes[state['pane']],panes[0]
+        state.update(split=False,pane=0)
+    elif action=='close' or action=='toggle' and state['split']:
+        if state['split']:
+            # Close the focused view, keeping the other view's scene and cursor.
+            other=1-state['pane'];panes[0],panes[other]=panes[other],panes[0]
+        state.update(split=False,pane=0)
+    elif action=='toggle':state['split']=True
+
+
+def mini_terminal_scope(enabled):
+    if os.environ.get('KITTY_WINDOW_ID') and sys.stdout.isatty():
+        # LOOK's Kitty config routes only this editor's pane keys into Mini.
+        sys.stdout.write('\x1b]1337;SetUserVar=mercury_mini'+('=MQ==' if enabled else '')+'\x07')
+        sys.stdout.flush()
 
 
 def navigation_key(key):
@@ -332,10 +364,11 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                 except Exception as error: state['message']=str(error)
                 continue
             if key == '\x11': persist(); return
-            if key == '\x17':
-                state['split']=not state['split']; state['pane']=0;state['mode']='NORMAL';continue
-            if key == '\n' and state['mode'] == 'NORMAL' and not state['tree']:
-                state['pane']=1-state['pane'] if state['split'] else 0;state['mode']='NORMAL';continue
+            action=pane_action(key)
+            if action:
+                change_panes(state,panes,action);continue
+            if key in ('\n','\r',curses.KEY_ENTER) and state['mode'] == 'NORMAL' and not state['tree']:
+                change_panes(state,panes,'focus');continue
             if key == '\t': state['tree']=not state['tree']; state['mode']='NORMAL'; continue
             if key == '\x1b': state['mode']='NORMAL'; state['command']=''; continue
             if key=='\x02' and (state['tree'] or state['mode']=='COMMAND'):
@@ -354,9 +387,9 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                         try: state['message']=save();state['dirty']=False
                         except Exception as error: state['message']=str(error);continue
                     if command in ('q','wq'): persist();return
-                    elif command in ('split','sp'):state['split']=True
-                    elif command in ('only','close'):state['split']=False;state['pane']=0
-                    elif command not in ('w',):state['message']='Commands: :w :q :wq :split :only'
+                    elif command in ('split','sp'):change_panes(state,panes,'split')
+                    elif command in ('only','close'):change_panes(state,panes,command)
+                    elif command not in ('w',):state['message']='Commands: :w :q :wq :split (:sp) :only :close'
                 elif key in (curses.KEY_BACKSPACE,'\x7f','\b'):state['command']=state['command'][:-1]
                 elif isinstance(key,str) and key.isprintable():state['command']+=key
                 continue
@@ -456,5 +489,9 @@ def run(scenes, checkpoint, save, split=False,initial=0):
             elif key==':':state['mode']='COMMAND';state['command']=''
             if before!=buffer.text:state['dirty']=True;active['column']=None
             elif not motion:active['column']=None
-    try: run_screen(interface)
-    finally: checkpoint(values())
+    try:
+        mini_terminal_scope(True)
+        run_screen(interface)
+    finally:
+        mini_terminal_scope(False)
+        checkpoint(values())

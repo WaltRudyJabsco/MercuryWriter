@@ -1,3 +1,11 @@
+# Unreleased — Mini pane commands and help audit
+
+- Match LOOK pane keys: Option/Alt-Shift-W switches; Ctrl-Shift-W closes the focused writing pane. Ctrl-Option/Alt-W is a close alias.
+- Preserve the other pane's scene, cursor and scroll when closing; `:only` keeps the focused pane and `:close` keeps the other.
+- Recognize modified terminal keys and Enter variants, retaining Ctrl-J as the portable normal-mode pane shortcut.
+- Show pane actions in split footers and audit F1 help, command aliases, CLI reference and man page. Document scene-management commands as a current web-only feature.
+- Cooperate with LOOK's editor-scoped Kitty mappings without changing shortcuts in other terminal panes.
+
 # 1.6.8 — Quiet Command Colors
 
 - Use a single blue accent for all command keys, with subdued gray descriptions.

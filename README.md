@@ -97,7 +97,9 @@ Editor names are case-insensitive, so `--editor Mini` works too. Use the single
 hyphenated name `nvim-desk`. Explicit editor options override `MERCURY_EDITOR`;
 without either, Mercury uses Mini even when Neovim is installed.
 
-**Mini** offers Ctrl-W split, Ctrl-J other pane (in normal mode), Tab manuscript
+**Mini** offers Ctrl-W split, Option/Alt-Shift-W other pane, Ctrl-Shift-W close
+the focused pane (Ctrl-Option/Alt-W also works), Ctrl-J other pane in normal
+mode, Tab manuscript
 navigator, Enter select, Ctrl-S save and Ctrl-Q exit/commit. Each split has its
 own navigator. `i`, `a`, `o` enter insert; Esc returns to normal. Arrows work in
 all writing modes; `hjkl` also moves in normal and Vim visual mode.
@@ -146,7 +148,12 @@ without a system clipboard, Mini retains its internal register and reports the
 limitation. A saved LOOK clip can still be inserted with Ctrl-B.
 
 `x` deletes, `u`/Ctrl-R undo/redo, and `0`, `$`, `G` navigate. Commands: `:w`,
-`:q`, `:wq`, `:split`, `:only`. Mini intentionally supports a
+`:q`, `:wq`, `:split` (`:sp`), `:only` (keep focused pane), `:close` (keep other pane).
+LOOK's Kitty configuration routes these pane keys into Mini only while Mini is
+open. Other terminals need distinct modified-key reporting; Ctrl-J in normal
+mode and `:close` are portable fallbacks. F1 shows the complete, mode-specific
+command list. The tree currently navigates existing scenes; use the web editor
+to create, rename or delete chapters and scenes. Mini intentionally supports a
 bounded set of Vim commands; Neovim is available for its full editing behavior.
 
 The optional **Neovim interface** (`--editor nvim`) loads your personal
