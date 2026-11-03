@@ -28,7 +28,7 @@ def test_modified_pane_keys_preserve_both_scenes_and_restore_terminal():
                 if select.select([master],[],[],.1)[0]:output.extend(os.read(master,65536))
         try:
             until(b'Chapter Alpha')
-            os.write(master,b'\x17');until(b'Option/Alt-Shift-W')
+            os.write(master,b'W');until(b'Option/Alt-Shift-W')
             os.write(master,b'\x1b[119;4u\tj\r');until(b'Beta / Scene Beta')
             os.write(master,b'iB\x1b[119;6uiA\x11')
             deadline=time.monotonic()+5
@@ -73,10 +73,10 @@ def test_real_terminal_sidebar_creates_scene_and_chapter_and_reopens(tmp_path):
         server._lcommit(manuscript())
         Path.home=lambda:directory
         def request(base,path,body,timeout):
-            r=server._lapply(body['project_id'],body['base_revision'],body['scenes'],body['source'],body.get('additions'))
+            r=server._lapply(body['project_id'],body['base_revision'],body['scenes'],body['source'],body.get('additions'),body.get('renames'))
             return (409 if r.get('conflict') else 200),r
         session=Session('local',server._lbundle('book-1'),request)
-        mercury_desk.run(session.scenes,session.checkpoint,session.save,add=session.add)
+        mercury_desk.run(session.scenes,session.checkpoint,session.save,add=session.add,rename=session.rename)
         session.save()
         Path(sys.argv[3]).write_text(json.dumps(server._lbundle('book-1')))
         ''')
@@ -97,7 +97,11 @@ def test_real_terminal_sidebar_creates_scene_and_chapter_and_reopens(tmp_path):
         os.write(master,b'\t');read_until(b'new scene')
         os.write(master,b's');read_until(b'Added Scene 3')
         os.write(master,b'A\tc');read_until(b'Added chapter')
-        os.write(master,b'B\x13\x11')
+        os.write(master,b'BW\x1b\trWind\r')
+        read_until(b'Wind')
+        os.write(master,b'RFinale\r')
+        read_until(b'Finale')
+        os.write(master,b'\x13\x11')
         deadline=time.monotonic()+5
         while child.poll() is None:
             assert time.monotonic()<deadline,repr(bytes(output[-1200:]))
@@ -109,7 +113,8 @@ def test_real_terminal_sidebar_creates_scene_and_chapter_and_reopens(tmp_path):
                     if error.errno!=errno.EIO:raise
         assert child.returncode==0,repr(bytes(output[-1200:]))
         rows=json.loads(result.read_text())['scenes']
-        assert [(row['chapter_index'],row['scene_title'],row['text']) for row in rows][-2:]==[(0,'Scene 3','A'),(1,'Scene 1','B')]
+        assert [(row['chapter_index'],row['scene_title'],row['text']) for row in rows][-2:]==[(0,'Scene 3','A'),(1,'Wind','BW')]
+        assert rows[-1]['chapter_title']=='Finale'
     finally:
         if child.poll() is None:child.kill();child.wait()
         os.close(master)

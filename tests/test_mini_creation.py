@@ -12,7 +12,7 @@ def writing(tmp_path,monkeypatch):
     server=server_at(tmp_path/'server')
     server._lcommit(manuscript())
     def request(base,path,body,timeout):
-        result=server._lapply(body['project_id'],body['base_revision'],body['scenes'],body['source'],body.get('additions'))
+        result=server._lapply(body['project_id'],body['base_revision'],body['scenes'],body['source'],body.get('additions'),body.get('renames'))
         return (409 if result.get('conflict') else 200),result
     monkeypatch.setattr(Path,'home',lambda:tmp_path)
     return server,Session('local',server._lbundle('book-1'),request),request
@@ -134,3 +134,19 @@ def test_sidebar_and_command_creation_update_both_panes_without_losing_text(writ
     assert chapters[0]['scenes'][2]['text']=='AC'
     assert chapters[1]['title']=='Finale'
     assert chapters[1]['scenes'][0]['text']=='B'
+
+def test_pending_titles_and_original_draft_path_survive_recovery(writing):
+    server,session,request=writing
+    new_scene=session.add('scene','s1')
+    path=Path(new_scene['path'])
+    path.write_text('A draft before the title')
+    session.rename('chapter','s1','The Crossing')
+    session.rename('scene',new_scene['scene_id'],'The River')
+    record=json.loads((session.root/'session.json').read_text())
+    recovered=Session('local',record['bundle'],request,root=session.root)
+    recovered.save()
+    chapter=server._lproj('book-1')['chapters'][0]
+    assert chapter['title']=='The Crossing'
+    assert chapter['scenes'][-1]['title']=='The River'
+    assert chapter['scenes'][-1]['text']=='A draft before the title'
+    assert not recovered.renames

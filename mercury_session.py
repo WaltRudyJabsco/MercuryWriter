@@ -42,12 +42,16 @@ class Session:
         self.scenes=[dict(scene) for scene in bundle['scenes']]
         self.baseline={scene['scene_id']:scene['text'] for scene in self.scenes}
         self.additions=self.bundle.get('pending_additions',[])
+        self.renames=self.bundle.get('pending_renames',{})
         self.lock=threading.RLock();self.conflict=False;self.changed=0;self.error=''
         for index,scene in enumerate(self.scenes):
             path=scene_path(self.root,scene)
             # Older recovery sessions use numbered files; never strand those drafts.
             legacy=self.root/f'{index+1:04d}.md'
             if root and legacy.is_file():path=legacy
+            if root and scene.get('path'):
+                saved=Path(scene['path'])
+                if saved.resolve().is_relative_to(self.root.resolve()) and saved.is_file():path=saved
             scene['path']=str(path)
             if not root:
                 path.parent.mkdir(parents=True,exist_ok=True)
@@ -94,6 +98,24 @@ class Session:
             self.record()
             return scene
 
+    def rename(self,kind,anchor,title):
+        title=title.strip()
+        if not title or len(title)>200:
+            raise ValueError('Enter a title of 1–200 characters')
+        with self.lock:
+            if self.conflict:
+                raise RuntimeError('Resolve the saved conflict before renaming')
+            selected=next(scene for scene in self.scenes if scene['scene_id']==anchor)
+            field=kind+'_id'
+            identity=selected[field]
+            self.renames.setdefault(kind,{})[identity]=title
+            self.bundle['pending_renames']=self.renames
+            for scene, saved in zip(self.scenes,self.bundle['scenes']):
+                if scene[field]==identity:
+                    scene[kind+'_title']=saved[kind+'_title']=title
+                    saved['path']=scene['path']
+            self.record()
+
     def save(self):
         with self.lock:
             if self.conflict:raise RuntimeError(f'Conflict preserved. Recovery files: {self.root}')
@@ -102,15 +124,19 @@ class Session:
                 text=Path(scene['path']).read_text(encoding='utf-8')
                 if text!=self.baseline[scene['scene_id']]:patches.append({'scene_id':scene['scene_id'],'text':text})
             additions=[dict(item,text=Path(next(s['path'] for s in self.scenes if s['scene_id']==item['scene_id'])).read_text(encoding='utf-8')) for item in self.additions]
-            if not patches and not additions:
+            if not patches and not additions and not self.renames:
                 self.error='';self.record();return 'Saved · no pending edits'
             try:
                 code,result=self.request(self.base,'/api/library/apply',{'project_id':self.bundle['project_id'],
-                    'base_revision':self.revision,'scenes':patches,'additions':additions,'source':'terminal-desk'},20)
+                    'base_revision':self.revision,'scenes':patches,'additions':additions,'renames':self.renames,'source':'terminal-desk'},20)
                 if code==409 or result.get('conflict'):
                     self.conflict=True;raise RuntimeError('Concurrent draft preserved; resolve it in mercury conflicts')
                 if code>=400:raise RuntimeError(result.get('error','Save failed'))
                 if additions and result.get('added')!=len(additions):raise RuntimeError('This Mercury server needs the chapter/scene update; new sections remain in local recovery')
+                if self.renames and result.get('renamed')!=sum(map(len,self.renames.values())):
+                    raise RuntimeError('This Mercury server needs the rename update; titles remain in local recovery')
+                self.renames.clear()
+                self.bundle.pop('pending_renames',None)
                 self.revision=(result.get('revision') or {}).get('revision_id') or self.revision
                 for patch in patches:
                     self.baseline[patch['scene_id']]=patch['text']
@@ -133,7 +159,7 @@ class Session:
             initial=next((i+1 for i,item in enumerate(self.scenes) if scene and scene.casefold() in item['scene_title'].casefold()),1)
             if editor=='mini':
                 import mercury_desk
-                mercury_desk.run(self.scenes,self.checkpoint,self.save,split=split,initial=initial-1,add=self.add)
+                mercury_desk.run(self.scenes,self.checkpoint,self.save,split=split,initial=initial-1,add=self.add,rename=self.rename)
             else:
                 manifest=self.root/'desk.json'
                 atomic_text(manifest,json.dumps({'scenes':self.scenes,'split':split,'initial':initial}))

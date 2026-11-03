@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import curses,json,os,re,shutil,subprocess,sys,urllib.request,urllib.error,urllib.parse,webbrowser
 from pathlib import Path
-import argparse,time,shlex
+import argparse,time,shlex,importlib
 from mercury_session import Session
 from mercury_terminal import binding_rows,hint_styles,paint_bindings,terminal_theme,screen_background,resume_screen,run_screen
 LOCAL="http://127.0.0.1:8765";CLIENT=Path.home()/".config/mercury/client.json"
@@ -160,6 +160,15 @@ def trash_ui(stdscr,b):
     try:post(b,"/api/library/purge",{"trash_id":x["trash_id"]});message="Deleted permanently"
     except Exception as e:message=str(e)
 
+def open_library_pane():
+ look=Path.home()/".local/share/look"
+ if not (look/"terminal_style.py").is_file():
+  return "Shell panes require LOOK with Kitty or tmux"
+ if str(look) not in sys.path:sys.path.append(str(look))
+ try:return importlib.import_module("terminal_style").open_pane(Path.cwd())
+ except (ImportError,OSError) as error:return f"Could not open pane: {error}"
+
+
 def library_ui(stdscr,editor=None,split_view=False):
  curses.curs_set(0);stdscr.keypad(True);idx=0;folder=None;query="";message="";theme=terminal_theme();styles=hint_styles(theme);screen_background(stdscr,theme)
  b,lib=discover()
@@ -181,7 +190,7 @@ def library_ui(stdscr,editor=None,split_view=False):
    stdscr.addnstr(0,0,'Mercury Library needs 40 columns × 10 rows; q quits',max(0,w-1));stdscr.refresh()
    if stdscr.getch() in (ord('q'),27):return
    continue
-  footer=binding_rows([('↑↓','select'),('Enter','edit'),('←','up'),('n','new project'),('N','new folder'),('r','rename'),('m','move'),('l','keep offline'),('x','remove local copy'),('d','delete'),('T','trash'),('/','filter'),('c','clear filter'),('o','browser'),('q','quit')],w-1)
+  footer=binding_rows([('↑↓','select'),('Enter','edit'),('←','up'),('n','new project'),('N','new folder'),('r','rename'),('m','move'),('l','keep offline'),('x','remove local copy'),('d','delete'),('T','trash'),('/','filter'),('c','clear filter'),('o','browser'),('W','shell pane'),('q','quit')],w-1)
   footer_top=h-len(footer);visible_rows=max(0,footer_top-4)
   path=[];f=folder
   while f and f in fmap:path.append(fmap[f]["name"]);f=fmap[f].get("parent_id")
@@ -223,6 +232,7 @@ def library_ui(stdscr,editor=None,split_view=False):
   elif key==ord("/"):query=prompt(stdscr,"Filter:");idx=0
   elif key==ord("c"):query=""
   elif key==ord("o"):webbrowser.open(b+"/?library=1");message="Opened Mercury Library in browser"
+  elif key==ord("W"):message=open_library_pane()
   elif key==ord("T"):trash_ui(stdscr,b);refresh();message="Returned from Trash"
   elif key==ord("n"):
    name=prompt(stdscr,"New project name:")

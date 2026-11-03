@@ -647,9 +647,16 @@ def _lbundle(pid):
  for ci,c in enumerate(p.get("chapters",[])):
   for si,x in enumerate(c.get("scenes",[])):scenes.append({"chapter_id":c.get("id"),"chapter_title":c.get("title","Chapter"),"chapter_index":ci,"scene_id":x.get("id"),"scene_title":x.get("title","Scene"),"scene_index":si,"text":x.get("text","")})
  return {"project_id":pid,"title":p.get("title","Untitled"),"revision":_lrev(pid),"chapters":[{"id":c["id"],"title":c.get("title","Chapter")} for c in p.get("chapters",[])],"scenes":scenes}
-def _lapply(pid,parent,patches,source,additions=None):
+def _lapply(pid,parent,patches,source,additions=None,renames=None):
  p=_lproj(pid)
  if not p:raise FileNotFoundError("Project not found")
+ renames={} if renames is None else renames
+ if not isinstance(renames,dict) or any(
+    kind not in ("chapter","scene") or not isinstance(titles,dict)
+    or any(not isinstance(title,str) or not title.strip() or len(title)>200 for title in titles.values())
+    for kind,titles in renames.items()
+ ):raise ValueError("Invalid manuscript titles")
+ renamed=sum(map(len,renames.values()))
  changed=0
  if not isinstance(additions or [],list):raise ValueError("Invalid manuscript additions")
  for addition in additions or []:
@@ -658,7 +665,12 @@ def _lapply(pid,parent,patches,source,additions=None):
   existing=next(((c,s) for c in p["chapters"] for s in c["scenes"] if s["id"]==addition.get("scene_id")),None)
   if existing:
    c,s=existing
-   if c is not chapter or s.get("title")!=addition.get("scene_title") or addition["kind"]=="chapter" and c.get("title")!=addition.get("chapter_title"):raise ValueError("Scene ID already exists")
+   scene_titles=(addition.get("scene_title"),renames.get("scene",{}).get(s["id"]))
+   chapter_titles=(addition.get("chapter_title"),renames.get("chapter",{}).get(c["id"]))
+   if c is not chapter or s.get("title") not in scene_titles:
+    raise ValueError("Scene ID already exists")
+   if addition["kind"]=="chapter" and c.get("title") not in chapter_titles:
+    raise ValueError("Chapter ID already exists")
    # A lost acknowledgement may repeat an addition. Reuse its stable IDs.
    if s.get("text","")!=addition.get("text",""):s["text"]=addition.get("text","");changed+=1
    continue
@@ -676,13 +688,21 @@ def _lapply(pid,parent,patches,source,additions=None):
   if not x:continue
   t=q.get("title",x.get("title","Scene"));body=q.get("text",x.get("text",""))
   if x.get("title")!=t or x.get("text","")!=body:x["title"]=t;x["text"]=body;changed+=1
+ targets={"chapter":{c["id"]:c for c in p["chapters"]},"scene":by}
+ for kind,titles in renames.items():
+  for identity,title in titles.items():
+   target=targets[kind].get(identity)
+   if target is None:raise ValueError(f"{kind.title()} not found")
+   if target.get("title")!=title:
+    target["title"]=title
+    changed+=1
  if not changed:
   revision=_lrev(pid)
   # Replayed additions acknowledge their IDs, not unseen intervening edits.
   # Retain the client's older base so its next edit still detects that conflict.
-  if additions and revision and revision.get("parent_revision")!=parent and revision.get("revision_id")!=parent:revision=None
-  return {"saved":False,"changed":0,"added":len(additions or []),"project_id":pid,"revision":revision}
- p["modified"]=datetime.now().isoformat(timespec="seconds");r=_lcommit(p,parent,source);r["changed"]=changed;r["added"]=len(additions or []);return r
+  if (additions or renames) and revision and revision.get("parent_revision")!=parent and revision.get("revision_id")!=parent:revision=None
+  return {"saved":False,"changed":0,"added":len(additions or []),"renamed":renamed,"project_id":pid,"revision":revision}
+ p["modified"]=datetime.now().isoformat(timespec="seconds");r=_lcommit(p,parent,source);r["changed"]=changed;r["added"]=len(additions or []);r["renamed"]=renamed;return r
 
 def _history_project_dir(project):
     # Stable enough for recovery while keeping each manuscript visually separate.
@@ -1347,7 +1367,7 @@ class Handler(SimpleHTTPRequestHandler):
             if self.path=="/api/library/commit":
                 r=_lcommit(body.get("project"),body.get("parent_revision"),body.get("source") or "browser");self.send_json(r,409 if r.get("conflict") else 200);return
             if self.path=="/api/library/apply":
-                try:r=_lapply(body.get("project_id"),body.get("base_revision"),body.get("scenes"),body.get("source") or "remote-nvim",body.get("additions"))
+                try:r=_lapply(body.get("project_id"),body.get("base_revision"),body.get("scenes"),body.get("source") or "remote-nvim",body.get("additions"),body.get("renames"))
                 except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
                 except ValueError as e:self.send_json({"error":str(e)},400);return
                 self.send_json(r,409 if r.get("conflict") else 200);return
