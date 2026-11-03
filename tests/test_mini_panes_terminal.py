@@ -57,3 +57,59 @@ def test_modified_pane_keys_preserve_both_scenes_and_restore_terminal():
         finally:
             if child.poll() is None:child.kill();child.wait()
             os.close(master)
+
+
+def test_real_terminal_sidebar_creates_scene_and_chapter_and_reopens(tmp_path):
+    root=Path(__file__).resolve().parents[1]
+    result=tmp_path/'project.json'
+    code=dedent('''\
+        import json,sys
+        from pathlib import Path
+        sys.path[:0]=[sys.argv[1],str(Path(sys.argv[1])/'tests')]
+        from test_mercury import server_at,manuscript
+        from mercury_session import Session
+        import mercury_desk
+        directory=Path(sys.argv[2]);server=server_at(directory/'server')
+        server._lcommit(manuscript())
+        Path.home=lambda:directory
+        def request(base,path,body,timeout):
+            r=server._lapply(body['project_id'],body['base_revision'],body['scenes'],body['source'],body.get('additions'))
+            return (409 if r.get('conflict') else 200),r
+        session=Session('local',server._lbundle('book-1'),request)
+        mercury_desk.run(session.scenes,session.checkpoint,session.save,add=session.add)
+        session.save()
+        Path(sys.argv[3]).write_text(json.dumps(server._lbundle('book-1')))
+        ''')
+    master,slave=pty.openpty()
+    fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',36,120,0,0))
+    child=subprocess.Popen([sys.executable,'-c',code,str(root),str(tmp_path),str(result)],stdin=slave,stdout=slave,stderr=slave,env=dict(os.environ,TERM='xterm-256color'))
+    os.close(slave);output=bytearray()
+    def read_until(needle):
+        offset=len(output);deadline=time.monotonic()+5
+        while needle not in output[offset:]:
+            assert time.monotonic()<deadline,repr(bytes(output[-1200:]))
+            if select.select([master],[],[],.1)[0]:
+                chunk=os.read(master,65536)
+                assert chunk,repr(bytes(output[-1200:]))
+                output.extend(chunk)
+    try:
+        read_until(b'Arrival')
+        os.write(master,b'\t');read_until(b'new scene')
+        os.write(master,b's');read_until(b'Added Scene 3')
+        os.write(master,b'A\tc');read_until(b'Added chapter')
+        os.write(master,b'B\x13\x11')
+        deadline=time.monotonic()+5
+        while child.poll() is None:
+            assert time.monotonic()<deadline,repr(bytes(output[-1200:]))
+            if select.select([master],[],[],.1)[0]:
+                try:
+                    chunk=os.read(master,65536)
+                    if chunk:output.extend(chunk)
+                except OSError as error:
+                    if error.errno!=errno.EIO:raise
+        assert child.returncode==0,repr(bytes(output[-1200:]))
+        rows=json.loads(result.read_text())['scenes']
+        assert [(row['chapter_index'],row['scene_title'],row['text']) for row in rows][-2:]==[(0,'Scene 3','A'),(1,'Scene 1','B')]
+    finally:
+        if child.poll() is None:child.kill();child.wait()
+        os.close(master)

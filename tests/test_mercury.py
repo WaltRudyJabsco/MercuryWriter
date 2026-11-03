@@ -449,7 +449,7 @@ class MiniWritingTests(unittest.TestCase):
         self.assertEqual(hints['Option/Alt-Shift-W'],'pane')
         self.assertEqual(hints['Ctrl-Shift-W'],'close pane')
         help_text=str(mini_help())
-        for key in ('Ctrl-Option/Alt-W',':close',':sp','Creating, renaming'):
+        for key in ('Ctrl-Option/Alt-W',':close',':sp',':scene [title]',':chapter [title]'):
             self.assertIn(key,help_text)
 
     def run_keys(self,text,keys,height=24,width=100):

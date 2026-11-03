@@ -234,7 +234,7 @@ def navigation_key(key):
     return None
 
 
-def run(scenes, checkpoint, save, split=False,initial=0):
+def run(scenes, checkpoint, save, split=False,initial=0,add=None):
     """checkpoint writes recoverable local files; save also commits through Mercury."""
     buffers = [Buffer(scene['text']) for scene in scenes]
     if not buffers:
@@ -248,6 +248,26 @@ def run(scenes, checkpoint, save, split=False,initial=0):
 
     def persist():
         checkpoint(values()); state['checkpoint'] = time.monotonic()
+
+    def create(kind,title=''):
+        if add is None:
+            state['message']='Manuscript creation requires a Mercury session';return
+        persist()
+        old_buffers={scene['scene_id']:buffer for scene,buffer in zip(scenes,buffers)}
+        locations=[(scenes[pane['scene']]['scene_id'],scenes[pane['nav']]['scene_id']) for pane in panes]
+        active=panes[state['pane']]
+        try:new=add(kind,scenes[active['nav'] if state['tree'] else active['scene']]['scene_id'],title)
+        except Exception as error:state['message']=str(error);return
+        buffers[:]=[old_buffers.get(scene['scene_id']) or Buffer(scene['text']) for scene in scenes]
+        indices={scene['scene_id']:i for i,scene in enumerate(scenes)}
+        for pane,(scene_id,nav_id) in zip(panes,locations):pane.update(scene=indices[scene_id],nav=indices[nav_id])
+        index=indices[new['scene_id']]
+        active.update(scene=index,nav=index,cursor=0,scroll=0,column=None)
+        state.update(tree=False,mode='INSERT',shift_selection=False,command='',dirty=True)
+        try:
+            persist();message=save();state['dirty']=False
+            state['message']='Added '+('chapter · ' if kind=='chapter' else '')+new['scene_title']+' · '+message
+        except Exception as error:state['message']='Created locally · '+str(error)
 
     def paint(window, row, col, text, width, style=0):
         safe = ''.join(char if char.isprintable() else ' ' for char in str(text))
@@ -374,7 +394,8 @@ def run(scenes, checkpoint, save, split=False,initial=0):
             if key=='\x02' and (state['tree'] or state['mode']=='COMMAND'):
                 state['tree']=False;state['mode']='NORMAL';state['command']=''
             if state['tree']:
-                if key in ('j',curses.KEY_DOWN): active['nav']=min(len(scenes)-1,active['nav']+1)
+                if key in ('s','c'):create('scene' if key=='s' else 'chapter')
+                elif key in ('j',curses.KEY_DOWN): active['nav']=min(len(scenes)-1,active['nav']+1)
                 elif key in ('k',curses.KEY_UP): active['nav']=max(0,active['nav']-1)
                 elif key in ('\n','\r',curses.KEY_ENTER):
                     active.update(scene=active['nav'],cursor=0,scroll=0,column=None);state['tree']=False
@@ -389,7 +410,9 @@ def run(scenes, checkpoint, save, split=False,initial=0):
                     if command in ('q','wq'): persist();return
                     elif command in ('split','sp'):change_panes(state,panes,'split')
                     elif command in ('only','close'):change_panes(state,panes,command)
-                    elif command not in ('w',):state['message']='Commands: :w :q :wq :split (:sp) :only :close'
+                    elif command.split(' ',1)[0] in ('scene','chapter'):
+                        kind,_,title=command.partition(' ');create(kind,title)
+                    elif command not in ('w',):state['message']='Commands: :w :q :wq :split :only :close :scene [title] :chapter [title]'
                 elif key in (curses.KEY_BACKSPACE,'\x7f','\b'):state['command']=state['command'][:-1]
                 elif isinstance(key,str) and key.isprintable():state['command']+=key
                 continue

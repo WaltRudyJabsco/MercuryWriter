@@ -152,8 +152,12 @@ limitation. A saved LOOK clip can still be inserted with Ctrl-B.
 LOOK's Kitty configuration routes these pane keys into Mini only while Mini is
 open. Other terminals need distinct modified-key reporting; Ctrl-J in normal
 mode and `:close` are portable fallbacks. F1 shows the complete, mode-specific
-command list. The tree currently navigates existing scenes; use the web editor
-to create, rename or delete chapters and scenes. Mini intentionally supports a
+command list. Press **Tab** for the manuscript tree, then **s** for a new scene
+at the end of the selected chapter or **c** for a new chapter and its first scene
+at the end of the book. Both open ready to type. From normal mode, use
+`:scene My Scene` or `:chapter My Chapter` for optional titles. Additions save
+through Mercury's revision system and stay in local recovery if the server is
+unavailable. Rename and delete remain in the web editor. Mini intentionally supports a
 bounded set of Vim commands; Neovim is available for its full editing behavior.
 
 The optional **Neovim interface** (`--editor nvim`) loads your personal
