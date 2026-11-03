@@ -646,18 +646,43 @@ def _lbundle(pid):
  scenes=[]
  for ci,c in enumerate(p.get("chapters",[])):
   for si,x in enumerate(c.get("scenes",[])):scenes.append({"chapter_id":c.get("id"),"chapter_title":c.get("title","Chapter"),"chapter_index":ci,"scene_id":x.get("id"),"scene_title":x.get("title","Scene"),"scene_index":si,"text":x.get("text","")})
- return {"project_id":pid,"title":p.get("title","Untitled"),"revision":_lrev(pid),"scenes":scenes}
-def _lapply(pid,parent,patches,source):
+ return {"project_id":pid,"title":p.get("title","Untitled"),"revision":_lrev(pid),"chapters":[{"id":c["id"],"title":c.get("title","Chapter")} for c in p.get("chapters",[])],"scenes":scenes}
+def _lapply(pid,parent,patches,source,additions=None):
  p=_lproj(pid)
  if not p:raise FileNotFoundError("Project not found")
- by={x.get("id"):x for c in p.get("chapters",[]) for x in c.get("scenes",[])};changed=0
+ changed=0
+ if not isinstance(additions or [],list):raise ValueError("Invalid manuscript additions")
+ for addition in additions or []:
+  if not isinstance(addition,dict) or addition.get("kind") not in ("chapter","scene"):raise ValueError("Invalid manuscript addition")
+  chapter=next((c for c in p["chapters"] if c["id"]==addition.get("chapter_id")),None)
+  existing=next(((c,s) for c in p["chapters"] for s in c["scenes"] if s["id"]==addition.get("scene_id")),None)
+  if existing:
+   c,s=existing
+   if c is not chapter or s.get("title")!=addition.get("scene_title") or addition["kind"]=="chapter" and c.get("title")!=addition.get("chapter_title"):raise ValueError("Scene ID already exists")
+   # A lost acknowledgement may repeat an addition. Reuse its stable IDs.
+   if s.get("text","")!=addition.get("text",""):s["text"]=addition.get("text","");changed+=1
+   continue
+  if addition["kind"]=="chapter":
+   if chapter:raise ValueError("Chapter ID already exists")
+   chapter={"id":addition.get("chapter_id"),"title":addition.get("chapter_title"),"notes":"","scenes":[]}
+   p["chapters"].append(chapter)
+  if chapter is None:raise ValueError("Chapter not found")
+  chapter["scenes"].append({"id":addition.get("scene_id"),"title":addition.get("scene_title"),"text":addition.get("text",""),"notes":"","target":1500})
+  changed+=1
+ _validate_project(p)
+ by={x.get("id"):x for c in p.get("chapters",[]) for x in c.get("scenes",[])}
  for q in patches or []:
   x=by.get(q.get("scene_id"))
   if not x:continue
   t=q.get("title",x.get("title","Scene"));body=q.get("text",x.get("text",""))
   if x.get("title")!=t or x.get("text","")!=body:x["title"]=t;x["text"]=body;changed+=1
- if not changed:return {"saved":False,"changed":0,"project_id":pid,"revision":_lrev(pid)}
- p["modified"]=datetime.now().isoformat(timespec="seconds");r=_lcommit(p,parent,source);r["changed"]=changed;return r
+ if not changed:
+  revision=_lrev(pid)
+  # Replayed additions acknowledge their IDs, not unseen intervening edits.
+  # Retain the client's older base so its next edit still detects that conflict.
+  if additions and revision and revision.get("parent_revision")!=parent and revision.get("revision_id")!=parent:revision=None
+  return {"saved":False,"changed":0,"added":len(additions or []),"project_id":pid,"revision":revision}
+ p["modified"]=datetime.now().isoformat(timespec="seconds");r=_lcommit(p,parent,source);r["changed"]=changed;r["added"]=len(additions or []);return r
 
 def _history_project_dir(project):
     # Stable enough for recovery while keeping each manuscript visually separate.
@@ -1322,8 +1347,9 @@ class Handler(SimpleHTTPRequestHandler):
             if self.path=="/api/library/commit":
                 r=_lcommit(body.get("project"),body.get("parent_revision"),body.get("source") or "browser");self.send_json(r,409 if r.get("conflict") else 200);return
             if self.path=="/api/library/apply":
-                try:r=_lapply(body.get("project_id"),body.get("base_revision"),body.get("scenes"),body.get("source") or "remote-nvim")
+                try:r=_lapply(body.get("project_id"),body.get("base_revision"),body.get("scenes"),body.get("source") or "remote-nvim",body.get("additions"))
                 except FileNotFoundError as e:self.send_json({"error":str(e)},404);return
+                except ValueError as e:self.send_json({"error":str(e)},400);return
                 self.send_json(r,409 if r.get("conflict") else 200);return
             if self.path=="/api/library/remove-local":
                 try:r=_remove_local_replica(body.get("project_id"))

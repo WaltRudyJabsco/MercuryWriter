@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 
 
 def scene_path(root, scene):
@@ -40,6 +41,7 @@ class Session:
         self.revision=(bundle.get('revision') or {}).get('revision_id')
         self.scenes=[dict(scene) for scene in bundle['scenes']]
         self.baseline={scene['scene_id']:scene['text'] for scene in self.scenes}
+        self.additions=self.bundle.get('pending_additions',[])
         self.lock=threading.RLock();self.conflict=False;self.changed=0;self.error=''
         for index,scene in enumerate(self.scenes):
             path=scene_path(self.root,scene)
@@ -63,6 +65,35 @@ class Session:
                 path=Path(scene['path'])
                 if path.read_text(encoding='utf-8')!=scene['text']:atomic_text(path,scene['text'])
 
+    def add(self,kind,anchor,title=''):
+        with self.lock:
+            if self.conflict:raise RuntimeError('Resolve the saved conflict before adding manuscript sections')
+            if kind not in ('scene','chapter'):raise ValueError('Choose scene or chapter')
+            title=title.strip()
+            if len(title)>200:raise ValueError('Use a title of 200 characters or fewer')
+            selected=next(scene for scene in self.scenes if scene['scene_id']==anchor)
+            if kind=='chapter':
+                chapter_index=max([scene['chapter_index'] for scene in self.scenes]+[len(self.bundle.get('chapters',[]))-1])+1
+                chapter_id=uuid.uuid4().hex;chapter_title=title or f'Chapter {chapter_index+1}'
+                scene_index=0;scene_title='Scene 1';index=len(self.scenes)
+            else:
+                chapter_id=selected['chapter_id'];chapter_title=selected['chapter_title'];chapter_index=selected['chapter_index']
+                siblings=[(i,s) for i,s in enumerate(self.scenes) if s['chapter_id']==chapter_id]
+                scene_index=max(s['scene_index'] for _,s in siblings)+1
+                scene_title=title or f'Scene {scene_index+1}';index=siblings[-1][0]+1
+            scene=dict(chapter_id=chapter_id,chapter_title=chapter_title,chapter_index=chapter_index,
+                       scene_id=uuid.uuid4().hex,scene_title=scene_title,scene_index=scene_index,text='')
+            path=scene_path(self.root,scene);path.parent.mkdir(parents=True,exist_ok=True)
+            # Duplicate titles must never overwrite another scene's recovery file.
+            if path.exists():path=path.with_name(path.stem+'-'+scene['scene_id']+'.md')
+            scene['path']=str(path);atomic_text(path,'')
+            self.scenes.insert(index,scene);self.baseline[scene['scene_id']]=''
+            self.bundle['scenes'].insert(index,dict(scene))
+            self.additions.append(dict(kind=kind,**{key:scene[key] for key in ('chapter_id','chapter_title','scene_id','scene_title')}))
+            self.bundle['pending_additions']=self.additions
+            self.record()
+            return scene
+
     def save(self):
         with self.lock:
             if self.conflict:raise RuntimeError(f'Conflict preserved. Recovery files: {self.root}')
@@ -70,19 +101,22 @@ class Session:
             for scene in self.scenes:
                 text=Path(scene['path']).read_text(encoding='utf-8')
                 if text!=self.baseline[scene['scene_id']]:patches.append({'scene_id':scene['scene_id'],'text':text})
-            if not patches:
+            additions=[dict(item,text=Path(next(s['path'] for s in self.scenes if s['scene_id']==item['scene_id'])).read_text(encoding='utf-8')) for item in self.additions]
+            if not patches and not additions:
                 self.error='';self.record();return 'Saved · no pending edits'
             try:
                 code,result=self.request(self.base,'/api/library/apply',{'project_id':self.bundle['project_id'],
-                    'base_revision':self.revision,'scenes':patches,'source':'terminal-desk'},20)
+                    'base_revision':self.revision,'scenes':patches,'additions':additions,'source':'terminal-desk'},20)
                 if code==409 or result.get('conflict'):
                     self.conflict=True;raise RuntimeError('Concurrent draft preserved; resolve it in mercury conflicts')
                 if code>=400:raise RuntimeError(result.get('error','Save failed'))
+                if additions and result.get('added')!=len(additions):raise RuntimeError('This Mercury server needs the chapter/scene update; new sections remain in local recovery')
                 self.revision=(result.get('revision') or {}).get('revision_id') or self.revision
                 for patch in patches:
                     self.baseline[patch['scene_id']]=patch['text']
                     for scene in self.bundle['scenes']:
                         if scene['scene_id']==patch['scene_id']:scene['text']=patch['text']
+                self.additions.clear();self.bundle.pop('pending_additions',None)
                 self.changed+=result.get('changed',0);self.error='';self.record()
                 return 'Saved to Mercury · '+str(result.get('changed',0))+' scene(s)'
             except Exception as error:
@@ -99,7 +133,7 @@ class Session:
             initial=next((i+1 for i,item in enumerate(self.scenes) if scene and scene.casefold() in item['scene_title'].casefold()),1)
             if editor=='mini':
                 import mercury_desk
-                mercury_desk.run(self.scenes,self.checkpoint,self.save,split=split,initial=initial-1)
+                mercury_desk.run(self.scenes,self.checkpoint,self.save,split=split,initial=initial-1,add=self.add)
             else:
                 manifest=self.root/'desk.json'
                 atomic_text(manifest,json.dumps({'scenes':self.scenes,'split':split,'initial':initial}))

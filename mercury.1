@@ -325,6 +325,12 @@ select scene
 Enter
 open scene in this pane
 .TP
+s
+add scene at end of selected chapter; start writing
+.TP
+c
+add chapter with Scene 1 at end of book; start writing
+.TP
 Tab
 return to writing
 .SS Commands
@@ -340,5 +346,11 @@ open two writing panes
 .TP
 :only / :close
 keep focused pane / keep other pane
-.SS The manuscript tree selects existing scenes. Creating, renaming and deleting chapters or scenes is currently available in the web editor.
+.TP
+:scene [title]
+add scene to current chapter; optional title
+.TP
+:chapter [title]
+add chapter with its first scene; optional title
+.SS New chapters and scenes save through Mercury and remain in local recovery if the server is unavailable. Rename and delete are available in the web editor.
 .SS LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.

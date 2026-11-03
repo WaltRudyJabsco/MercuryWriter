@@ -293,6 +293,8 @@ options:
 
 - **↑↓ / j k**: select scene
 - **Enter**: open scene in this pane
+- **s**: add scene at end of selected chapter; start writing
+- **c**: add chapter with Scene 1 at end of book; start writing
 - **Tab**: return to writing
 
 ### Commands
@@ -301,8 +303,10 @@ options:
 - **:q**: exit; local recovery files retained
 - **:split / :sp**: open two writing panes
 - **:only / :close**: keep focused pane / keep other pane
+- **:scene [title]**: add scene to current chapter; optional title
+- **:chapter [title]**: add chapter with its first scene; optional title
 
-### The manuscript tree selects existing scenes. Creating, renaming and deleting chapters or scenes is currently available in the web editor.
+### New chapters and scenes save through Mercury and remain in local recovery if the server is unavailable. Rename and delete are available in the web editor.
 
 
 ### LOOK clips stay on this computer. Capture records local copies; it does not sync history across the Fabric. Mini copies/cuts explicitly join this local shelf even with capture off.

@@ -1,3 +1,11 @@
+# Unreleased — Create manuscript sections in Mini
+
+- In the manuscript tree, `s` adds a scene to the selected chapter and `c` adds a chapter with its first scene. Both open ready to type.
+- `:scene [title]` and `:chapter [title]` accept optional names from command mode.
+- Save additions and scene edits in one revision, preserve local recovery while offline, and retain concurrent proposals through existing conflict handling.
+- Keep both panes on their selected scenes when the manuscript list grows; retries reuse stable section IDs.
+- Show creation shortcuts in the tree footer, F1 help, generated command reference and man page.
+
 # Unreleased — Mini pane commands and help audit
 
 - Match LOOK pane keys: Option/Alt-Shift-W switches; Ctrl-Shift-W closes the focused writing pane. Ctrl-Option/Alt-W is a close alias.
