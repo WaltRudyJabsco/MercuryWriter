@@ -291,8 +291,8 @@ options:
 
 ### Manuscript tree
 
-- **↑↓ / j k**: select scene
-- **Enter**: open scene in this pane
+- **↑↓ / j k**: show selected scene immediately
+- **Enter**: write in this pane
 - **s**: add scene at end of selected chapter; start writing
 - **c**: add chapter with Scene 1 at end of book; start writing
 - **r / R**: rename selected scene / its chapter
