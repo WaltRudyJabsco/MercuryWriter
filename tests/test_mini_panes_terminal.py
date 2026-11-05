@@ -29,7 +29,8 @@ def test_modified_pane_keys_preserve_both_scenes_and_restore_terminal():
         try:
             until(b'Chapter Alpha')
             os.write(master,b'W');until(b'Option/Alt-Shift-W')
-            os.write(master,b'\x1b[119;4u\tj\r');until(b'Beta / Scene Beta')
+            os.write(master,b'\x1b[119;4u\tj');until(b'Beta / Scene Beta')
+            os.write(master,b'\t')
             os.write(master,b'iB\x1b[119;6uiA\x11')
             deadline=time.monotonic()+5
             while child.poll() is None:
@@ -118,3 +119,21 @@ def test_real_terminal_sidebar_creates_scene_and_chapter_and_reopens(tmp_path):
     finally:
         if child.poll() is None:child.kill();child.wait()
         os.close(master)
+
+
+def test_outline_groups_scenes_and_browsing_retains_pane_positions():
+    from mercury_desk import outline_rows, browse_scene
+    scenes = [dict(chapter_index=c, chapter_title=t, scene_index=s, scene_title=n)
+              for c,t,s,n in [(0,'Chapter 1',0,'Opening'),(0,'Chapter 1',1,'Night'),(1,'Arrival',0,'Station')]]
+    assert outline_rows(scenes) == [(None,'Chapter 1'),(0,'  1.1 Opening'),(1,'  1.2 Night'),(None,'Chapter 2 — Arrival'),(2,'  2.1 Station')]
+    pane = dict(scene=0,nav=0,cursor=53,scroll=4,column=7)
+    other = dict(scene=0,nav=0,cursor=2,scroll=0,column=None)
+    browse_scene(pane,2)
+    assert pane['scene'] == pane['nav'] == 2
+    assert pane['cursor'] == 0
+    pane['cursor'] = 12
+    browse_scene(pane,0)
+    assert (pane['cursor'],pane['scroll'],pane['column']) == (53,4,7)
+    browse_scene(pane,2)
+    assert pane['cursor'] == 12
+    assert other['cursor'] == 2 and other['scene'] == 0

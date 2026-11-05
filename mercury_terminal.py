@@ -103,7 +103,7 @@ def mini_bindings(state):
     if state['mode']=='NORMAL':common += [('W','split')]
     if state.get('split'):common += [('Option/Alt-Shift-W','pane'),('Ctrl-Shift-W','close pane')]
     if state['mode']=='COMMAND':mode=[('Enter','run'),('Esc','cancel')]
-    elif state.get('tree'):mode=[('↑↓','choose'),('Enter','open scene'),('s','new scene'),('c','new chapter'),('r','rename scene'),('R','rename chapter')]
+    elif state.get('tree'):mode=[('↑↓','browse scenes'),('Enter','write'),('s','new scene'),('c','new chapter'),('r','rename scene'),('R','rename chapter')]
     elif state['mode']=='INSERT':mode=[('Esc','normal'),('Shift+arrows','select')]
     elif state['mode']=='VISUAL':
         mode=[('Esc','normal'),('Ctrl-C/X','copy/cut'),('Ctrl-V','paste')]
@@ -123,7 +123,7 @@ def mini_help():
         ('Insert mode', [('Type','insert text'),('Enter / Ctrl-J','new line'),('Backspace / Delete','delete text'),('Esc','return to normal'),('?','insert a question mark; use F1 for help')]),
         ('Visual selection', [('v then arrows / hjkl','extend Vim selection'),('y / d','copy / cut Vim selection'),('Shift+arrows','start or extend standard selection'),('Type','replace a standard Shift selection'),('Backspace / Delete','remove a standard Shift selection'),('Esc','cancel selection; return to normal')]),
         ('All writing modes', [('Arrows','move cursor'),('PgUp / PgDn','move a screen; retain screen row and preferred column'),('Home / End','line start / end'),('Ctrl-Home / Ctrl-End','scene start / end'),('Shift + navigation','extend selection'),('Ctrl-A','select entire scene'),('Ctrl-C / Ctrl-X / Ctrl-V','copy / cut / paste system clipboard')]),
-        ('Manuscript tree', [('↑↓ / j k','select scene'),('Enter','open scene in this pane'),('s','add scene at end of selected chapter; start writing'),('c','add chapter with Scene 1 at end of book; start writing'),('r / R','rename selected scene / its chapter'),('Tab','return to writing')]),
+        ('Manuscript tree', [('↑↓ / j k','show selected scene immediately'),('Enter','write in this pane'),('s','add scene at end of selected chapter; start writing'),('c','add chapter with Scene 1 at end of book; start writing'),('r / R','rename selected scene / its chapter'),('Tab','return to writing')]),
         ('Commands', [(':w / :wq','save / save and quit'),(':q','exit; local recovery files retained'),(':split / :sp','open two writing panes'),(':only / :close','keep focused pane / keep other pane'),(':scene [title]','add scene to current chapter; optional title'),(':chapter [title]','add chapter with its first scene; optional title')]),
         ('Titles', [(':rename-scene TITLE','rename current scene'),(':rename-chapter TITLE','rename current chapter')]),
         ('New chapters, scenes and titles save through Mercury and remain in local recovery if the server is unavailable. Delete is available in the web editor.',[]),

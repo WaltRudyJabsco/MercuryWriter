@@ -234,6 +234,31 @@ def navigation_key(key):
     return None
 
 
+def outline_rows(scenes):
+    """Chapter headings are labels; scene identities remain the selection targets."""
+    rows = []
+    previous = None
+    for index, scene in enumerate(scenes):
+        chapter = scene['chapter_index']
+        if chapter != previous:
+            number = f"Chapter {chapter+1}"
+            title = scene['chapter_title']
+            rows.append((None, number if title == number else f"{number} — {title}"))
+            previous = chapter
+        rows.append((index, f"  {chapter+1}.{scene['scene_index']+1} {scene['scene_title']}"))
+    return rows
+
+
+def browse_scene(pane, index):
+    """Remember writing positions independently in each pane."""
+    if index != pane['scene']:
+        positions = pane.setdefault('positions', {})
+        positions[pane['scene']] = (pane['cursor'], pane['scroll'], pane['column'])
+        cursor, scroll, column = positions.get(index, (0, 0, None))
+        pane.update(scene=index, cursor=cursor, scroll=scroll, column=column)
+    pane['nav'] = index
+
+
 def run(scenes, checkpoint, save, split=False,initial=0,add=None,rename=None):
     """checkpoint writes recoverable local files; save also commits through Mercury."""
     buffers = [Buffer(scene['text']) for scene in scenes]
@@ -260,7 +285,8 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None,rename=None):
         except Exception as error:state['message']=str(error);return
         buffers[:]=[old_buffers.get(scene['scene_id']) or Buffer(scene['text']) for scene in scenes]
         indices={scene['scene_id']:i for i,scene in enumerate(scenes)}
-        for pane,(scene_id,nav_id) in zip(panes,locations):pane.update(scene=indices[scene_id],nav=indices[nav_id])
+        for pane,(scene_id,nav_id) in zip(panes,locations):
+            pane.update(scene=indices[scene_id],nav=indices[nav_id],positions={})
         index=indices[new['scene_id']]
         active.update(scene=index,nav=index,cursor=0,scroll=0,column=None)
         state.update(tree=False,mode='INSERT',shift_selection=False,command='',dirty=True)
@@ -339,12 +365,18 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None,rename=None):
                 for row in range(body_height):
                     paint(window,top+1+row,0,' '*nav_width,nav_width,theme['navigation'])
                     paint(window,top+1+row,nav_width,'│',1,theme['muted'])
-                nav_start = max(0, pane['nav']-body_height+1)
-                for row, index in enumerate(range(nav_start, min(len(scenes), nav_start+body_height))):
-                    scene = scenes[index]
-                    label = f"{scene['chapter_index']+1}.{scene['scene_index']+1} {scene['scene_title']}"
-                    paint(window, top+1+row, 0, label.ljust(nav_width-1), nav_width-1,
-                          theme['selected'] if index == pane['nav'] and number == state['pane'] and state['tree'] else theme['navigation']|curses.A_BOLD if index == pane['scene'] else theme['navigation'])
+                outline = outline_rows(scenes)
+                selected_row = next(i for i, (index, _) in enumerate(outline) if index == pane['nav'])
+                nav_start = max(0, selected_row-body_height+1)
+                for row, (index, label) in enumerate(outline[nav_start:nav_start+body_height]):
+                    style = theme['navigation']
+                    if index is None:
+                        style = theme['header'] | curses.A_BOLD
+                    elif index == pane['nav'] and number == state['pane'] and state['tree']:
+                        style = theme['selected']
+                    elif index == pane['scene']:
+                        style |= curses.A_BOLD
+                    paint(window, top+1+row, 0, label.ljust(nav_width-1), nav_width-1, style)
                 rows = wrapped(text, edit_width)
                 pane['cursor']=min(pane['cursor'],len(text))
                 cursor_row = row_at(rows,pane['cursor'])
@@ -403,10 +435,10 @@ def run(scenes, checkpoint, save, split=False,initial=0,add=None,rename=None):
                 if key in ('r','R'):
                     state.update(mode='COMMAND',command='rename-scene ' if key=='r' else 'rename-chapter ')
                 elif key in ('s','c'):create('scene' if key=='s' else 'chapter')
-                elif key in ('j',curses.KEY_DOWN): active['nav']=min(len(scenes)-1,active['nav']+1)
-                elif key in ('k',curses.KEY_UP): active['nav']=max(0,active['nav']-1)
+                elif key in ('j',curses.KEY_DOWN): browse_scene(active,min(len(scenes)-1,active['nav']+1))
+                elif key in ('k',curses.KEY_UP): browse_scene(active,max(0,active['nav']-1))
                 elif key in ('\n','\r',curses.KEY_ENTER):
-                    active.update(scene=active['nav'],cursor=0,scroll=0,column=None);state['tree']=False
+                    browse_scene(active,active['nav']);state['tree']=False
                 continue
             if state['mode']=='COMMAND':
                 if key in ('\n','\r'):
